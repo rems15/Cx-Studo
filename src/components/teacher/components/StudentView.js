@@ -1,7 +1,8 @@
-// src/components/teacher/components/StudentsView.js - FIXED BEHAVIOR FLAGS
+// src/components/teacher/components/StudentsView.js - FIXED VERSION
 import React, { useState, useMemo } from 'react';
+import { calculateOverallStudentSummary } from '../utils/monitorCalculations';
 
-const StudentsView = ({ 
+const StudentView = ({ 
     students, 
     subjects, 
     attendanceData, 
@@ -20,7 +21,35 @@ const StudentsView = ({
     // Get attendance data for selected date
     const dateAttendanceData = attendanceData[selectedDate] || historicalData[selectedDate] || {};
 
-    // ✅ FIXED: Enhanced behavior flag detection
+    // Helper functions - MOVED TO TOP LEVEL
+    const getRoomDisplay = (subject) => {
+        // Special case for Homeroom - don't show room
+        if (subject.name === 'Homeroom' || subject.code === 'HR') {
+            return ''; // Show nothing for homeroom
+        }
+        
+        // For other subjects, show room if available
+        if (subject.room) {
+            return `Room ${subject.room}`;
+        }
+        
+        // If no room data, show "TBA" (To Be Assigned)
+        return 'Room TBA';
+    };
+
+    const getRoomTooltip = (subject) => {
+        if (subject.name === 'Homeroom' || subject.code === 'HR') {
+            return `${subject.name} - Main classroom`;
+        }
+        
+        if (subject.room) {
+            return `${subject.name} - Room ${subject.room}`;
+        }
+        
+        return `${subject.name} - Room assignment pending`;
+    };
+
+    // Enhanced behavior flag detection
     const getAttendanceCell = (student, subject) => {
         const subjectData = dateAttendanceData[subject.name];
         
@@ -46,7 +75,7 @@ const StudentsView = ({
             };
         }
 
-        // ✅ ENHANCED: Multiple ways to find student record
+        // Enhanced: Multiple ways to find student record
         const studentRecord = findStudentRecord(student, subjectData.students);
 
         if (!studentRecord) {
@@ -76,7 +105,7 @@ const StudentsView = ({
         let display = statusIcons[studentRecord.status] || '❓';
         let className = statusColors[studentRecord.status] || 'text-secondary';
         
-        // ✅ ENHANCED: Multiple behavior flag checks
+        // Enhanced: Multiple behavior flag checks
         const hasBehaviorIssue = checkBehaviorFlag(studentRecord);
         if (hasBehaviorIssue) {
             display += '🚩';
@@ -97,7 +126,7 @@ const StudentsView = ({
         };
     };
 
-    // ✅ NEW: Enhanced student record matching
+    // Enhanced student record matching
     const findStudentRecord = (student, attendanceStudents) => {
         // Try multiple matching strategies
         const strategies = [
@@ -123,20 +152,14 @@ const StudentsView = ({
         for (const strategy of strategies) {
             const record = attendanceStudents.find(strategy);
             if (record) {
-                console.log(`✅ Found student record for ${student.firstName} ${student.lastName} using strategy`, strategies.indexOf(strategy) + 1);
                 return record;
             }
         }
-
-        console.warn(`❌ No attendance record found for ${student.firstName} ${student.lastName}`, {
-            student: student,
-            availableRecords: attendanceStudents.map(s => ({ name: s.studentName, id: s.studentId }))
-        });
         
         return null;
     };
 
-    // ✅ NEW: Enhanced behavior flag detection
+    // Enhanced behavior flag detection
     const checkBehaviorFlag = (studentRecord) => {
         // Check all possible behavior flag fields
         const behaviorFields = [
@@ -153,7 +176,6 @@ const StudentsView = ({
 
         for (const field of behaviorFields) {
             if (studentRecord[field] === true || studentRecord[field] === 'true' || studentRecord[field] === 1) {
-                console.log(`🚩 Behavior flag found in field: ${field} for student: ${studentRecord.studentName}`);
                 return true;
             }
         }
@@ -166,7 +188,6 @@ const StudentsView = ({
             );
             
             if (hasKeyword) {
-                console.log(`🚩 Behavior flag detected from notes for: ${studentRecord.studentName}`);
                 return true;
             }
         }
@@ -214,6 +235,13 @@ const StudentsView = ({
         return false;
     };
 
+    // Get summary stats
+    const getSummaryStats = () => {
+        return calculateOverallStudentSummary(students, subjects, { [selectedDate]: dateAttendanceData });
+    };
+
+    const stats = getSummaryStats();
+
     // Filter and sort students
     const filteredAndSortedStudents = useMemo(() => {
         let filtered = students.filter(student =>
@@ -254,42 +282,6 @@ const StudentsView = ({
         return sortDirection === 'asc' ? 'bi-arrow-up' : 'bi-arrow-down';
     };
 
-    // Get summary stats for selected date
-    const getSummaryStats = () => {
-        const stats = {
-            total: students.length,
-            presentToday: 0,
-            absentToday: 0,
-            lateToday: 0,
-            excusedToday: 0,
-            pendingSubjects: 0
-        };
-
-        const homeroomData = dateAttendanceData['Homeroom'];
-        if (homeroomData && homeroomData.students) {
-            homeroomData.students.forEach(record => {
-                if (record.status === 'present') stats.presentToday++;
-                else if (record.status === 'absent') stats.absentToday++;
-                else if (record.status === 'late') stats.lateToday++;
-                else if (record.status === 'excused') stats.excusedToday++;
-            });
-        }
-
-        // Count pending subjects
-        students.forEach(student => {
-            subjects.forEach(subject => {
-                const cell = getAttendanceCell(student, subject);
-                if (cell.type === 'pending') {
-                    stats.pendingSubjects++;
-                }
-            });
-        });
-
-        return stats;
-    };
-
-    const stats = getSummaryStats();
-
     const handleCellClick = (student, subject) => {
         const cell = getAttendanceCell(student, subject);
         if (cell.type !== 'not-enrolled') {
@@ -321,7 +313,7 @@ const StudentsView = ({
 
     const isToday = selectedDate === new Date().toISOString().split('T')[0];
 
-    // Student Detail View (same as before)
+    // Student Detail View
     if (selectedStudent) {
         return (
             <div className="student-detail-view">
@@ -467,7 +459,7 @@ const StudentsView = ({
                 <div className="col">
                     <div className="card border-0 bg-light">
                         <div className="card-body p-2 text-center">
-                            <div className="h6 mb-0 text-success">{stats.presentToday}</div>
+                            <div className="h6 mb-0 text-success">{stats.present}</div>
                             <small className="text-muted">Present</small>
                         </div>
                     </div>
@@ -475,7 +467,7 @@ const StudentsView = ({
                 <div className="col">
                     <div className="card border-0 bg-light">
                         <div className="card-body p-2 text-center">
-                            <div className="h6 mb-0 text-danger">{stats.absentToday}</div>
+                            <div className="h6 mb-0 text-danger">{stats.absent}</div>
                             <small className="text-muted">Absent</small>
                         </div>
                     </div>
@@ -483,7 +475,7 @@ const StudentsView = ({
                 <div className="col">
                     <div className="card border-0 bg-light">
                         <div className="card-body p-2 text-center">
-                            <div className="h6 mb-0 text-warning">{stats.lateToday}</div>
+                            <div className="h6 mb-0 text-warning">{stats.late}</div>
                             <small className="text-muted">Late</small>
                         </div>
                     </div>
@@ -491,7 +483,7 @@ const StudentsView = ({
                 <div className="col">
                     <div className="card border-0 bg-light">
                         <div className="card-body p-2 text-center">
-                            <div className="h6 mb-0 text-warning">{stats.pendingSubjects}</div>
+                            <div className="h6 mb-0 text-warning">{stats.pending}</div>
                             <small className="text-muted">Pending</small>
                         </div>
                     </div>
@@ -524,31 +516,24 @@ const StudentsView = ({
                 </div>
             </div>
 
-            {/* FIXED: Compact Table Layout */}
+            {/* Compact Table Layout */}
             <div className="table-responsive">
                 <table className="table table-sm table-hover" style={{ width: 'auto' }}>
                     <thead className="table-light sticky-top">
                         <tr>
                             <th style={{ width: '40px' }}>#</th>
                             <th 
-                                style={{ cursor: 'pointer', minWidth: '180px', maxWidth: '200px' }}
+                                style={{ cursor: 'pointer', minWidth: '200px', maxWidth: '250px' }}
                                 onClick={() => handleSort('name')}
                             >
                                 Student Name
                                 <i className={`bi ${getSortIcon('name')} ms-1`}></i>
                             </th>
                             <th 
-                                style={{ cursor: 'pointer', width: '100px' }}
-                                onClick={() => handleSort('studentId')}
-                            >
-                                ID
-                                <i className={`bi ${getSortIcon('studentId')} ms-1`}></i>
-                            </th>
-                            <th 
-                                style={{ cursor: 'pointer', width: '100px' }}
+                                style={{ cursor: 'pointer', width: '120px' }}
                                 onClick={() => handleSort('section')}
                             >
-                                Grade/Sec
+                                Grade/Section
                                 <i className={`bi ${getSortIcon('section')} ms-1`}></i>
                             </th>
                             {subjects.map(subject => (
@@ -556,20 +541,31 @@ const StudentsView = ({
                                     key={subject.id} 
                                     className="text-center"
                                     style={{ 
-                                        width: '80px',
+                                        width: '90px',
                                         backgroundColor: (subject.color || '#6c757d') + '20',
-                                        borderLeft: `3px solid ${subject.color || '#6c757d'}`
+                                        borderLeft: `3px solid ${subject.color || '#6c757d'}`,
+                                        padding: '8px 4px'
                                     }}
-                                    title={subject.name}
+                                    title={getRoomTooltip(subject)}
                                 >
                                     <div 
-                                        className="badge text-white fw-bold"
+                                        className="badge text-white fw-bold mb-1"
                                         style={{ 
                                             backgroundColor: subject.color || '#6c757d',
-                                            fontSize: '10px'
+                                            fontSize: '10px',
+                                            display: 'block'
                                         }}
                                     >
                                         {subject.code}
+                                    </div>
+                                    <div 
+                                        className="text-muted"
+                                        style={{ 
+                                            fontSize: '9px',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        {getRoomDisplay(subject)}
                                     </div>
                                 </th>
                             ))}
@@ -582,7 +578,6 @@ const StudentsView = ({
                                     <span className="badge bg-secondary">{index + 1}</span>
                                 </td>
                                 <td>
-                                    {/* CLICKABLE STUDENT NAME */}
                                     <div 
                                         className="fw-medium text-primary" 
                                         style={{ cursor: 'pointer' }}
@@ -592,11 +587,11 @@ const StudentsView = ({
                                         {student.firstName} {student.lastName}
                                         <i className="bi bi-box-arrow-up-right ms-1" style={{ fontSize: '10px' }}></i>
                                     </div>
-                                </td>
-                                <td>
-                                    <code className="text-primary" style={{ fontSize: '11px' }}>
-                                        {student.studentId || student.id}
-                                    </code>
+                                    <div>
+                                        <small className="text-muted" style={{ fontSize: '10px' }}>
+                                            ID: {student.studentId || student.id}
+                                        </small>
+                                    </div>
                                 </td>
                                 <td>
                                     <small className="text-muted">
@@ -612,7 +607,8 @@ const StudentsView = ({
                                             style={{ 
                                                 cursor: cell.type !== 'not-enrolled' ? 'pointer' : 'default',
                                                 fontSize: '16px',
-                                                backgroundColor: (subject.color || '#6c757d') + '08'
+                                                backgroundColor: (subject.color || '#6c757d') + '08',
+                                                padding: '8px 4px'
                                             }}
                                             onClick={() => handleCellClick(student, subject)}
                                             title={cell.tooltip || ''}
@@ -739,4 +735,4 @@ const StudentsView = ({
     );
 };
 
-export default StudentsView;
+export default StudentView;

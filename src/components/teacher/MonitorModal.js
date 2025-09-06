@@ -1,10 +1,11 @@
-// src/components/teacher/MonitorModal.js - FIXED TABS AND BEHAVIOR FLAGS
+// src/components/teacher/MonitorModal.js - ADDED REPORTS TAB
 import React from 'react';
 import { useMonitorData } from './hooks/useMonitorData';
 import { useMonitorState } from './hooks/useMonitorState';
 import { getContextConfig } from './utils/monitorHelpers';
 import StudentsView from './components/StudentView';
 import WeekView from './components/WeekView';
+import ReportsView from './components/ReportsView'; // NEW IMPORT
 
 const MonitorModal = ({ 
     currentUser, 
@@ -101,7 +102,7 @@ const MonitorModal = ({
                         <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
                     </div>
 
-                    {/* FIXED TAB NAVIGATION */}
+                    {/* UPDATED TAB NAVIGATION WITH REPORTS */}
                     <div className="modal-body p-0">
                         {/* Better styled tabs */}
                         <div className="bg-light border-bottom">
@@ -123,19 +124,21 @@ const MonitorModal = ({
                                             <span className="badge bg-primary ms-2">{students.length}</span>
                                         </button>
                                     </li>
+                           
+                                    {/* NEW REPORTS TAB */}
                                     <li className="nav-item">
                                         <button 
-                                            className={`nav-link ${activeView === 'week' ? 'active bg-white' : 'text-muted'}`}
+                                            className={`nav-link ${activeView === 'reports' ? 'active bg-white' : 'text-muted'}`}
                                             style={{
-                                                border: activeView === 'week' ? '1px solid #dee2e6' : 'none',
-                                                borderBottom: activeView === 'week' ? '1px solid white' : 'none',
+                                                border: activeView === 'reports' ? '1px solid #dee2e6' : 'none',
+                                                borderBottom: activeView === 'reports' ? '1px solid white' : 'none',
                                                 borderRadius: '6px 6px 0 0',
                                                 fontWeight: '500'
                                             }}
-                                            onClick={() => setActiveView('week')}
+                                            onClick={() => setActiveView('reports')}
                                         >
-                                            <i className="bi bi-calendar-week me-2"></i>
-                                            Week View
+                                            <i className="bi bi-bar-chart me-2"></i>
+                                            Reports
                                         </button>
                                     </li>
                                 </ul>
@@ -162,6 +165,22 @@ const MonitorModal = ({
                                 <WeekView 
                                     subjects={subjects}
                                     historicalData={historicalData}
+                                    currentWeekStart={currentWeekStart}
+                                    setCurrentWeekStart={setCurrentWeekStart}
+                                />
+                            )}
+
+                            {/* NEW REPORTS VIEW */}
+                            {activeView === 'reports' && (
+                                <ReportsView 
+                                    students={students}
+                                    subjects={subjects}
+                                    attendanceData={attendanceData}
+                                    historicalData={historicalData}
+                                    sectionData={sectionData}
+                                    subjectColors={subjectColors}
+                                    selectedDate={selectedDate}
+                                    setSelectedDate={setSelectedDate}
                                     currentWeekStart={currentWeekStart}
                                     setCurrentWeekStart={setCurrentWeekStart}
                                 />

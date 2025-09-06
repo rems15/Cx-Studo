@@ -1,169 +1,39 @@
-// src/components/teacher/utils/monitorCalculations.js - FIXED to match your working code
+// src/components/teacher/utils/monitorCalculations.js - UPDATED WITH NEW FUNCTIONS
+
 export const calculateTodaysSummary = (subjects, attendanceData) => {
-    console.group('🔍 TODAY SUMMARY DEBUG - Step by Step');
-    
-    // Step 1: Verify inputs
-    console.log('📊 Input validation:');
-    console.log('  - Subjects count:', subjects?.length || 0);
-    console.log('  - Subjects list:', subjects?.map(s => `${s.name} (${s.code})`) || []);
-    console.log('  - AttendanceData type:', typeof attendanceData);
-    console.log('  - AttendanceData keys:', Object.keys(attendanceData || {}));
-    console.log('  - Is attendanceData array?', Array.isArray(attendanceData));
-    
-    // Step 2: Check data structure
-    const dataStructure = {};
-    Object.keys(attendanceData || {}).forEach(key => {
-        const value = attendanceData[key];
-        dataStructure[key] = {
-            type: Array.isArray(value) ? 'array' : typeof value,
-            length: Array.isArray(value) ? value.length : 'N/A',
-            sample: Array.isArray(value) ? value[0] : value
-        };
-    });
-    console.log('📈 Data structure analysis:', dataStructure);
-    
-    // Safety check
-    if (!subjects || !Array.isArray(subjects) || !attendanceData) {
-        console.error('❌ Invalid inputs for summary calculation');
-        console.groupEnd();
-        return [];
-    }
+    const today = new Date().toISOString().split('T')[0];
+    const todayData = attendanceData[today] || {};
     
     const summary = [];
-    
-    // Step 3: Process each subject
-    subjects.forEach((subject, index) => {
-        console.log(`\n🔍 Processing Subject ${index + 1}: ${subject.name}`);
+    subjects.forEach(subject => {
+        // Check if attendance was taken for this subject
+        const subjectAttendance = todayData[subject.name];
+        const students = subjectAttendance?.students || [];
         
-        // 🔧 FIXED: Direct access with exact name matching
-        const subjectAttendance = attendanceData[subject.name];
-        
-        console.log(`  📊 Raw data for "${subject.name}":`, {
-            exists: subjectAttendance !== undefined,
-            type: Array.isArray(subjectAttendance) ? 'array' : typeof subjectAttendance,
-            length: Array.isArray(subjectAttendance) ? subjectAttendance.length : 'N/A'
-        });
-        
-        // 🔧 FIXED: Ensure we have a valid array
-        let students = [];
-        
-        if (Array.isArray(subjectAttendance)) {
-            students = subjectAttendance;
-        } else if (subjectAttendance && typeof subjectAttendance === 'object' && Array.isArray(subjectAttendance.students)) {
-            // Handle nested structure if it exists
-            students = subjectAttendance.students;
-            console.log('  📝 Used nested .students array');
-        } else {
-            console.log('  ⚠️ No valid attendance data found');
-        }
-        
-        console.log(`  👥 Final students array: ${students.length} students`);
-        if (students.length > 0) {
-            console.log('  📄 Sample student:', students[0]);
-        }
-        
-        // 🔧 FIXED: Calculate stats with validation
-        const presentCount = students.filter(s => s?.status === 'present').length;
-        const lateCount = students.filter(s => s?.status === 'late').length;
-        const absentCount = students.filter(s => s?.status === 'absent').length;
-        const excusedCount = students.filter(s => s?.status === 'excused').length;
+        const presentCount = students.filter(s => s.status === 'present').length;
+        const lateCount = students.filter(s => s.status === 'late').length;
+        const absentCount = students.filter(s => s.status === 'absent').length;
+        const excusedCount = students.filter(s => s.status === 'excused').length;
         const totalTaken = students.length;
         
-        console.log(`  📈 Calculated stats:`, {
-            present: presentCount,
-            late: lateCount,
-            absent: absentCount,
-            excused: excusedCount,
-            total: totalTaken
-        });
-        
-        // 🔧 FIXED: Get metadata from students
-        let takenBy = 'Unknown';
-        let time = 'Unknown time';
-        
-        if (students.length > 0) {
-            const firstStudent = students[0];
-            takenBy = firstStudent?.teacherName || 'Unknown';
-            
-            if (firstStudent?.timestamp) {
-                try {
-                    time = new Date(firstStudent.timestamp).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: true
-                    });
-                } catch (e) {
-                    console.warn('  ⚠️ Error parsing timestamp:', firstStudent.timestamp);
-                }
-            }
-        }
-        
-        console.log(`  ℹ️ Metadata: ${takenBy} at ${time}`);
-        
-        // 🔧 FIXED: Create subject summary
-        const subjectSummary = {
+        summary.push({
             subject: subject.name,
-            code: subject.code || subject.name.substring(0, 3).toUpperCase(),
-            color: subject.color || '#6c757d',
+            code: subject.code,
+            color: subject.color,
+            colorScheme: subject.colorScheme,
             presentCount,
             lateCount,
             absentCount,
             excusedCount,
             totalTaken,
             attendanceRate: totalTaken > 0 ? Math.round(((presentCount + lateCount) / totalTaken) * 100) : 0,
-            takenBy,
-            time,
-            status: totalTaken > 0 ? 'taken' : 'not-taken' // THIS IS THE KEY FIELD
-        };
-        
-        console.log(`  ✅ Final summary for ${subject.name}:`, {
-            status: subjectSummary.status,
-            rate: subjectSummary.attendanceRate,
-            takenBy: subjectSummary.takenBy
+            takenBy: subjectAttendance?.takenBy,
+            time: subjectAttendance?.time,
+            status: totalTaken > 0 ? 'taken' : 'not-taken'  // This is the key line
         });
-        
-        summary.push(subjectSummary);
     });
     
-    console.log('\n📊 COMPLETE SUMMARY:');
-    summary.forEach(s => {
-        console.log(`  ${s.subject}: ${s.status} (${s.attendanceRate}%) - ${s.totalTaken} students`);
-    });
-    
-    console.groupEnd();
     return summary;
-};
-
-// 🔧 ADDITIONAL: Debug helper function
-export const debugAttendanceData = (attendanceData, subjects) => {
-    console.group('🔧 ATTENDANCE DATA DEBUG HELPER');
-    
-    console.log('Raw attendanceData:', attendanceData);
-    
-    // Check each subject
-    subjects?.forEach(subject => {
-        console.log(`\n🔍 ${subject.name}:`);
-        console.log('  - Direct access:', attendanceData?.[subject.name]);
-        console.log('  - Type:', typeof attendanceData?.[subject.name]);
-        console.log('  - Is array:', Array.isArray(attendanceData?.[subject.name]));
-        
-        // Check for common variations
-        const variations = [
-            subject.name,
-            subject.name.toLowerCase(),
-            subject.name.toUpperCase(),
-            subject.code,
-            subject.id
-        ];
-        
-        variations.forEach(variation => {
-            if (attendanceData?.[variation]) {
-                console.log(`  - Found via "${variation}":`, attendanceData[variation]);
-            }
-        });
-    });
-    
-    console.groupEnd();
 };
 
 export const calculateWeekData = (subjects, historicalData, startDate) => {
@@ -179,27 +49,19 @@ export const calculateWeekData = (subjects, historicalData, startDate) => {
     };
 
     const weekDates = getWeekDates(startDate);
-    console.log('📅 Week data calculation for:', weekDates);
-    
     return weekDates.map(date => {
-        // Your working code structure: historicalData = { "2025-09-01": { Music: [...], Homeroom: [...] } }
         const dateData = historicalData[date] || {};
         const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
         const dayNumber = new Date(date).getDate();
-        
-        console.log(`📊 ${dayName} ${dayNumber} (${date}):`, Object.keys(dateData));
         
         return {
             date,
             dayName,
             dayNumber,
             subjects: subjects.map(subject => {
-                // Direct array access like your working code
-                const subjectData = dateData[subject.name] || [];
-                const totalStudents = Array.isArray(subjectData) ? subjectData.length : 0;
-                const presentCount = Array.isArray(subjectData) 
-                    ? subjectData.filter(s => s.status === 'present' || s.status === 'late').length 
-                    : 0;
+                const subjectData = dateData[subject.name];
+                const totalStudents = subjectData?.students?.length || 0;
+                const presentCount = subjectData?.students?.filter(s => s.status === 'present' || s.status === 'late').length || 0;
                 
                 return {
                     name: subject.name,
@@ -227,19 +89,15 @@ export const calculateStudentWeekData = (selectedStudent, subjects, historicalDa
 
     const weekDates = getWeekDates(startDate);
     return weekDates.map(date => {
-        // Your working code structure
         const dateData = historicalData[date] || {};
         const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'short' });
         const dayNumber = new Date(date).getDate();
         
         const subjectStatuses = subjects.map(subject => {
-            // Direct array access
-            const subjectData = dateData[subject.name] || [];
-            const studentRecord = Array.isArray(subjectData) 
-                ? subjectData.find(s => 
-                    selectedStudent && s.studentName === `${selectedStudent.firstName} ${selectedStudent.lastName}`
-                  )
-                : null;
+            const subjectData = dateData[subject.name];
+            const studentRecord = subjectData?.students?.find(s => 
+                selectedStudent && s.studentName === `${selectedStudent.firstName} ${selectedStudent.lastName}`
+            );
             
             return {
                 subject: subject.name,
@@ -261,19 +119,18 @@ export const calculateStudentWeekData = (selectedStudent, subjects, historicalDa
 };
 
 export const calculateStudentStats = (students, subjects, attendanceData) => {
-    // Your working code uses flat structure - direct access
-    console.log('📊 Student stats calculation - attendanceData:', attendanceData);
+    const today = new Date().toISOString().split('T')[0];
+    const todayData = attendanceData[today] || {};
     
     return students.map(student => {
         let presentSubjects = 0;
         let totalSubjects = 0;
         
         subjects.forEach(subject => {
-            // Direct access to subject data (flat structure)
-            const subjectData = attendanceData[subject.name] || [];
-            const studentRecord = Array.isArray(subjectData)
-                ? subjectData.find(s => s.studentName === `${student.firstName} ${student.lastName}`)
-                : null;
+            const subjectData = todayData[subject.name];
+            const studentRecord = subjectData?.students?.find(s => 
+                s.studentName === `${student.firstName} ${student.lastName}`
+            );
             
             if (studentRecord) {
                 totalSubjects++;
@@ -292,4 +149,40 @@ export const calculateStudentStats = (students, subjects, attendanceData) => {
             attendanceRate
         };
     });
+};
+
+// ✅ NEW: Calculate overall student summary for StudentsView
+export const calculateOverallStudentSummary = (students, subjects, attendanceData) => {
+    const selectedDate = Object.keys(attendanceData)[0]; // Get the selected date
+    const dateData = attendanceData[selectedDate] || {};
+    
+    const summary = {
+        total: students.length,
+        present: 0,
+        absent: 0,
+        late: 0,
+        excused: 0,
+        pending: 0
+    };
+    
+    // Get homeroom data for overall stats
+    const homeroomData = dateData['Homeroom'];
+    if (homeroomData && homeroomData.students) {
+        homeroomData.students.forEach(record => {
+            if (record.status === 'present') summary.present++;
+            else if (record.status === 'absent') summary.absent++;
+            else if (record.status === 'late') summary.late++;
+            else if (record.status === 'excused') summary.excused++;
+        });
+    }
+    
+    // Count pending subjects (subjects without attendance data)
+    subjects.forEach(subject => {
+        const subjectData = dateData[subject.name];
+        if (!subjectData || !subjectData.students || subjectData.students.length === 0) {
+            summary.pending++;
+        }
+    });
+    
+    return summary;
 };

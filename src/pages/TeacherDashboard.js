@@ -30,6 +30,7 @@ function TeacherDashboard({ onLogout, currentUser }) {
   const [subjectColors, setSubjectColors] = useState({});
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [attendanceData, setAttendanceData] = useState({});
+  const [activeView, setActiveView] = useState('dashboard');
 
   // Setup real-time data
   useEffect(() => {
@@ -214,12 +215,18 @@ function TeacherDashboard({ onLogout, currentUser }) {
         </div>
         
         <nav className="nav flex-column px-2">
-          <button className="nav-link text-start bg-primary text-white rounded mb-2">
+          <button 
+            className={`nav-link text-start ${activeView === 'dashboard' ? 'bg-primary text-white' : 'text-muted'} rounded mb-2`}
+            onClick={() => setActiveView('dashboard')}
+          >
             <i className="bi bi-house me-2"></i>
             {!sidebarCollapsed && 'Dashboard'}
           </button>
-          
-          <button className="nav-link text-start text-muted mb-2">
+
+          <button 
+            className={`nav-link text-start ${activeView === 'analytics' ? 'bg-primary text-white' : 'text-muted'} rounded mb-2`}
+            onClick={() => setActiveView('analytics')}
+          >
             <i className="bi bi-bar-chart me-2"></i>
             {!sidebarCollapsed && 'Analytics'}
           </button>
@@ -322,156 +329,164 @@ function TeacherDashboard({ onLogout, currentUser }) {
         </div>
 
         <div className="container-fluid py-4">
-          {/* Search and Stats */}
-          <div className="row mb-4">
-            <div className="col-md-6">
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Search sections..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="col-md-6">
-              <div className="d-flex justify-content-md-end mt-2 mt-md-0 gap-4">
-                <div className="text-center">
-                  <div className="h5 mb-0 text-warning">{homeroomCount}</div>
-                  <small className="text-muted">Homeroom</small>
-                </div>
-                <div className="text-center">
-                  <div className="h5 mb-0 text-info">{subjectCount}</div>
-                  <small className="text-muted">Subject Classes</small>
-                </div>
-                <div className="text-center">
-                  <div className="h5 mb-0 text-success">{completedCount}</div>
-                  <small className="text-muted">Completed</small>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sections Cards */}
-          {filteredSections.length > 0 ? (
-            <div className="row g-3">
-              {filteredSections.map((section) => (
-                <div className="col-md-6 col-lg-4" key={section.id}>
-                  <div 
-                    className={`card border-2 ${section.attendanceTaken ? 'border-success' : 'border-warning'}`}
-                    onClick={() => handleCardClick(section)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {/* Card Header Layout */}
-                    <div className={`card-header ${
-                      section.isHomeroom ? 'bg-warning text-dark' : 
-                      section.subject === 'Badminton' ? 'bg-secondary text-white' :
-                      'bg-light text-dark'
-                    } p-3`}>
-                      <div className="d-flex justify-content-between align-items-start">
-                        {/* LEFT SIDE - Subject Title and Room Number */}
-                        <div>
-                          <h6 className="mb-1 fw-bold">
-                            {section.isHomeroom && <i className="bi bi-house-door me-1"></i>}
-                            {section.subject || section.name}
-                          </h6>
-                          {/* Only show room number for non-homeroom sections */}
-                          {!section.isHomeroom && (
-                            <div className="small opacity-75">
-                              <i className="bi bi-geo-alt me-1"></i>
-                              Room {section.roomNumber || 'TBD'}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* RIGHT SIDE - Status Badges */}
-                        <div className="d-flex flex-column align-items-end gap-1">
-                          {section.isHomeroom && (
-                            <span className="badge bg-light text-dark">
-                              <i className="bi bi-star-fill me-1"></i>
-                              YOUR HOMEROOM
-                            </span>
-                          )}
-                          <span className={`badge ${section.attendanceTaken ? 'bg-success' : 'bg-secondary'}`}>
-                            <i className={`bi ${section.attendanceTaken ? 'bi-check-circle' : 'bi-clock'} me-1`}></i>
-                            {section.attendanceTaken ? 'Taken' : 'Pending'}
-                          </span>
-                        </div>
+            {activeView === 'dashboard' ? (
+              <>
+                {/* Search and Stats */}
+                <div className="row mb-4">
+                  <div className="col-md-6">
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Search sections..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-6">
+                    <div className="d-flex justify-content-md-end mt-2 mt-md-0 gap-4">
+                      <div className="text-center">
+                        <div className="h5 mb-0 text-warning">{homeroomCount}</div>
+                        <small className="text-muted">Homeroom</small>
                       </div>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="card-body p-3">
-                      {/* Stats */}
-                      <div className="row text-center mb-3 g-1">
-                        <div className="col">
-                          <div className="h6 mb-0 text-success">{section.presentCount || 0}</div>
-                          <small className="text-muted" style={{ fontSize: '10px' }}>Present</small>
-                        </div>
-                        <div className="col">
-                          <div className="h6 mb-0 text-warning">{section.lateCount || 0}</div>
-                          <small className="text-muted" style={{ fontSize: '10px' }}>Late</small>
-                        </div>
-                        <div className="col">
-                          <div className="h6 mb-0 text-danger">{section.absentCount || 0}</div>
-                          <small className="text-muted" style={{ fontSize: '10px' }}>Absent</small>
-                        </div>
-                        <div className="col">
-                          <div className="h6 mb-0 text-info">{section.excusedCount || 0}</div>
-                          <small className="text-muted" style={{ fontSize: '10px' }}>Excused</small>
-                        </div>
-                        <div className="col">
-                          <div className="h6 mb-0 text-primary">{section.enrolledCount || 0}</div>
-                          <small className="text-muted" style={{ fontSize: '10px' }}>Enrolled</small>
-                        </div>
+                      <div className="text-center">
+                        <div className="h5 mb-0 text-info">{subjectCount}</div>
+                        <small className="text-muted">Subject Classes</small>
                       </div>
-
-                      {/* Attendance Status */}
-                      {section.attendanceTaken && section.attendanceData && (
-                        <div className="alert alert-success py-2 mb-3">
-                          <small>
-                            <i className="bi bi-check-circle me-1"></i>
-                            <strong>Taken at:</strong> {section.attendanceData.time}
-                            <br/>
-                            <strong>By:</strong> {section.attendanceData.takenBy}
-                          </small>
-                        </div>
-                      )}
-
-                      {!section.attendanceTaken && (
-                        <div className="alert alert-warning py-2 mb-3">
-                          <small>
-                            <i className="bi bi-clock me-1"></i>
-                            Waiting for attendance to be taken
-                          </small>
-                        </div>
-                      )}
+                      <div className="text-center">
+                        <div className="h5 mb-0 text-success">{completedCount}</div>
+                        <small className="text-muted">Completed</small>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-5">
-              <i className="bi bi-exclamation-circle display-4 text-muted"></i>
-              <h5 className="mt-3">No sections found</h5>
-              <p className="text-muted">
-                {sections.length === 0 
-                  ? "You don't have any sections assigned yet. Please contact your administrator."
-                  : "Try adjusting your search terms"
-                }
-              </p>
-              
-              {sections.length === 0 && (
-                <div className="mt-4">
-                  <button className="btn btn-primary" onClick={loadTeacherData}>
-                    <i className="bi bi-arrow-clockwise me-1"></i>
-                    Retry Loading Data
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+
+                {/* Sections Cards */}
+                {filteredSections.length > 0 ? (
+                  <div className="row g-3">
+                    {filteredSections.map((section) => (
+                      <div className="col-md-6 col-lg-4" key={section.id}>
+                        <div
+                          className={`card border-2 ${section.attendanceTaken ? 'border-success' : 'border-warning'}`}
+                          onClick={() => handleCardClick(section)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {/* Card Header Layout */}
+                          <div className={`card-header ${
+                            section.isHomeroom ? 'bg-warning text-dark' :
+                            section.subject === 'Badminton' ? 'bg-secondary text-white' :
+                            'bg-light text-dark'
+                          } p-3`}>
+                            <div className="d-flex justify-content-between align-items-start">
+                              {/* LEFT SIDE - Subject Title and Room Number */}
+                              <div>
+                                <h6 className="mb-1 fw-bold">
+                                  {section.isHomeroom && <i className="bi bi-house-door me-1"></i>}
+                                  {section.subject || section.name}
+                                </h6>
+                                {!section.isHomeroom && (
+                                  <div className="small opacity-75">
+                                    <i className="bi bi-geo-alt me-1"></i>
+                                    Room {section.roomNumber || 'TBD'}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* RIGHT SIDE - Status Badges */}
+                              <div className="d-flex flex-column align-items-end gap-1">
+                                {section.isHomeroom && (
+                                  <span className="badge bg-light text-dark">
+                                    <i className="bi bi-star-fill me-1"></i>
+                                    YOUR HOMEROOM
+                                  </span>
+                                )}
+                                <span className={`badge ${section.attendanceTaken ? 'bg-success' : 'bg-secondary'}`}>
+                                  <i className={`bi ${section.attendanceTaken ? 'bi-check-circle' : 'bi-clock'} me-1`}></i>
+                                  {section.attendanceTaken ? 'Taken' : 'Pending'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Body */}
+                          <div className="card-body p-3">
+                            <div className="row text-center mb-3 g-1">
+                              <div className="col">
+                                <div className="h6 mb-0 text-success">{section.presentCount || 0}</div>
+                                <small className="text-muted" style={{ fontSize: '10px' }}>Present</small>
+                              </div>
+                              <div className="col">
+                                <div className="h6 mb-0 text-warning">{section.lateCount || 0}</div>
+                                <small className="text-muted" style={{ fontSize: '10px' }}>Late</small>
+                              </div>
+                              <div className="col">
+                                <div className="h6 mb-0 text-danger">{section.absentCount || 0}</div>
+                                <small className="text-muted" style={{ fontSize: '10px' }}>Absent</small>
+                              </div>
+                              <div className="col">
+                                <div className="h6 mb-0 text-info">{section.excusedCount || 0}</div>
+                                <small className="text-muted" style={{ fontSize: '10px' }}>Excused</small>
+                              </div>
+                              <div className="col">
+                                <div className="h6 mb-0 text-primary">{section.enrolledCount || 0}</div>
+                                <small className="text-muted" style={{ fontSize: '10px' }}>Enrolled</small>
+                              </div>
+                            </div>
+
+                            {section.attendanceTaken && section.attendanceData ? (
+                              <div className="alert alert-success py-2 mb-3">
+                                <small>
+                                  <i className="bi bi-check-circle me-1"></i>
+                                  <strong>Taken at:</strong> {section.attendanceData.time}<br />
+                                  <strong>By:</strong> {section.attendanceData.takenBy}
+                                </small>
+                              </div>
+                            ) : (
+                              <div className="alert alert-warning py-2 mb-3">
+                                <small>
+                                  <i className="bi bi-clock me-1"></i>
+                                  Waiting for attendance to be taken
+                                </small>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  ) : (
+                  <div className="text-center py-5">
+                    <i className="bi bi-exclamation-circle display-4 text-muted"></i>
+                    <h5 className="mt-3">No sections found</h5>
+                    <p className="text-muted">
+                      {sections.length === 0 
+                        ? "You don't have any sections assigned yet. Please contact your administrator."
+                        : "Try adjusting your search terms"
+                      }
+                    </p>
+
+                    {sections.length === 0 && (
+                      <div className="mt-4">
+                        <button className="btn btn-primary" onClick={loadTeacherData}>
+                          <i className="bi bi-arrow-clockwise me-1"></i>
+                          Retry Loading Data
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              // 🔮 Analytics Placeholder
+              <div className="text-center py-5">
+                <i className="bi bi-bar-chart-line display-4 text-primary"></i>
+                <h3 className="mt-3">Analytics Coming Soon</h3>
+                <p className="text-muted">
+                  This feature is currently being built. In the future, you’ll be able to view trends, student attendance summaries, and more!
+                </p>
+              </div>
+            )}
         </div>
+
       </div>
 
       {/* Modal for section actions */}

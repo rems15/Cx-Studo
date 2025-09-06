@@ -115,10 +115,15 @@ export default function Login({ onLogin }) {
     <div className="container d-flex justify-content-center align-items-center" style={{ minHeight: "100vh", backgroundColor: "#f8f9fa" }}>
       <div className="card shadow p-4" style={{ maxWidth: "500px", width: "100%" }}>
         <div className="text-center mb-4">
-          <div className="bg-primary bg-opacity-10 rounded-circle p-3 d-inline-flex mb-3">
-            <i className="bi bi-mortarboard-fill text-primary fs-2"></i>
-          </div>
-          <h3 className="mb-2">School Attendance System</h3>
+          
+            <img 
+               src="/images/cx-logo-1.jpg"
+              alt="App Logo" 
+              style={{ width: "48px", height: "48px" }} 
+            />
+          
+          <h3 className="mb-2">CX STUDO</h3>
+          <p className="text-muted">Unified Attendance Tracking For Teachers</p>
         </div>
         
         {error && (
