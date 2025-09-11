@@ -1,4 +1,4 @@
-// src/components/TeacherDashboard.js - UPDATED Monitor Integration
+// src/components/TeacherDashboard.js - FIXED VERSION WITH COLORS
 import React, { useState, useEffect } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
@@ -10,12 +10,15 @@ import {
   setupTeacherListeners,
   getAdminAnnouncements
 } from '../services/teacherService';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 import MonitorModal from './../components/teacher/MonitorModal';
 import AttendanceModal from './../components/teacher/AttendanceModal';
 
 function TeacherDashboard({ onLogout, currentUser }) {
   const [sections, setSections] = useState([]);
+  const [scheduleContext, setScheduleContext] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [notifications, setNotifications] = useState([]);
@@ -23,9 +26,9 @@ function TeacherDashboard({ onLogout, currentUser }) {
   const [showModal, setShowModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
-  // Updated monitor states
+  // Monitor states
   const [selectedSectionForMonitor, setSelectedSectionForMonitor] = useState(null);
-  const [showMonitorModal, setShowMonitorModal] = useState(false); // Renamed for clarity
+  const [showMonitorModal, setShowMonitorModal] = useState(false);
   const [monitorContext, setMonitorContext] = useState('homeroom');
   const [subjectColors, setSubjectColors] = useState({});
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
@@ -45,15 +48,23 @@ function TeacherDashboard({ onLogout, currentUser }) {
     // Setup real-time listeners
     const unsubscribers = [];
     try {
-      const sectionsListener = setupTeacherListeners(currentUser, async (updatedSections) => {
-        setSections(updatedSections);
+      const sectionsListener = setupTeacherListeners(currentUser, async (result) => {
+        // Handle new data structure from enhanced teacher service
+        if (result && result.sections) {
+          setSections(result.sections);
+          setScheduleContext(result.scheduleContext);
+        } else {
+          // Fallback for old format
+          setSections(result || []);
+        }
+        
         const announcements = await getAdminAnnouncements();
-        checkNotifications(updatedSections, announcements);
+        checkNotifications(result.sections || result || [], announcements);
       });
       
       unsubscribers.push(sectionsListener);
     } catch (error) {
-      // Error handled silently
+      console.error('Error setting up listeners:', error);
     }
 
     return () => {
@@ -65,12 +76,44 @@ function TeacherDashboard({ onLogout, currentUser }) {
     };
   }, [currentUser]);
 
+  const loadSubjectColors = async () => {
+    try {
+      const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
+      const colors = {};
+      
+      subjectsSnapshot.forEach(doc => {
+        const subjectData = doc.data();
+        if (subjectData.name && subjectData.color) {
+          colors[subjectData.name] = {
+            hex: subjectData.color,
+            bg: subjectData.color,
+            light: subjectData.color + '20'
+          };
+        }
+      });
+      
+      console.log('Loaded subject colors:', colors);
+      setSubjectColors(colors);
+    } catch (error) {
+      console.error('Error loading subject colors:', error);
+    }
+  };
+
+
   const loadTeacherData = async () => {
     try {
       setLoading(true);
       
-      // Get teacher's sections
-      const teacherSections = await getTeacherSections(currentUser);
+      await loadSubjectColors();
+
+      // Get enhanced teacher sections with schedule filtering
+      const result = await getTeacherSections(currentUser);
+      const teacherSections = result.sections || result || [];
+      
+      // Store schedule context if available
+      if (result.scheduleContext) {
+        setScheduleContext(result.scheduleContext);
+      }
       
       // Get today's attendance data
       const attendanceData = await getTodayAttendance();
@@ -81,19 +124,17 @@ function TeacherDashboard({ onLogout, currentUser }) {
         const sectionAttendance = attendanceData[section.sectionId];
         const subjectKey = section.isHomeroom ? 'homeroom' : section.subject?.toLowerCase().replace(/\s+/g, '-');
         const attendance = sectionAttendance?.[subjectKey];
-        const students = attendance?.students || [];
 
         return {
           ...section,
           attendanceTaken: !!attendance,
           attendanceData: attendance,
-          // If attendance is taken, use attendance data; otherwise show enrolled count
           presentCount: attendance ? (attendance.students?.filter(s => s.status === 'present').length || 0) : 0,
           lateCount: attendance ? (attendance.students?.filter(s => s.status === 'late').length || 0) : 0,
           absentCount: attendance ? (attendance.students?.filter(s => s.status === 'absent').length || 0) : 0,
           excusedCount: attendance ? (attendance.students?.filter(s => s.status === 'excused').length || 0) : 0,
-          enrolledCount: section.studentCount || section.sectionData.currentEnrollment || 0,
-          totalStudents: section.studentCount || section.sectionData.currentEnrollment || 0
+          enrolledCount: section.studentCount || section.sectionData?.currentEnrollment || 0,
+          totalStudents: section.studentCount || section.sectionData?.currentEnrollment || 0
         };
       });
       
@@ -101,7 +142,7 @@ function TeacherDashboard({ onLogout, currentUser }) {
       checkNotifications(sectionsWithAttendance, announcements);
 
     } catch (error) {
-      // Error handled silently
+      console.error('Error loading teacher data:', error);
     } finally {
       setLoading(false);
     }
@@ -121,7 +162,17 @@ function TeacherDashboard({ onLogout, currentUser }) {
       });
     }
 
-    // 2. Student absence/late threshold warnings
+    // 2. Schedule-based notifications
+    if (scheduleContext && scheduleContext.totalSubjectsFiltered > 0) {
+      alerts.push({
+        type: 'info',
+        message: `${scheduleContext.totalSubjectsFiltered} subjects were filtered out (not scheduled for today)`,
+        icon: 'bi-calendar-check',
+        priority: 'low'
+      });
+    }
+
+    // 3. Student absence/late threshold warnings
     sectionsList.forEach(section => {
       if (section.attendanceTaken && section.attendanceData) {
         const students = section.attendanceData.students || [];
@@ -130,23 +181,21 @@ function TeacherDashboard({ onLogout, currentUser }) {
           const absentCount = (student.monthlyAbsences || 0);
           const lateCount = (student.monthlyLates || 0);
           const totalIssues = absentCount + lateCount;
-          const threshold = 5; // Default threshold
+          const threshold = 5;
           
           if (totalIssues >= threshold) {
             alerts.push({
               type: 'danger',
-              message: `Please be advised that your student ${student.name} in ${section.subject || 'HR'} has already accumulated ${totalIssues} absences or lates - this refreshes if additional student added and reset by end of the week`,
+              message: `Student ${student.name} in ${section.subject || 'HR'} has ${totalIssues} absences/lates`,
               icon: 'bi-exclamation-triangle-fill',
-              priority: 'critical',
-              studentId: student.id,
-              sectionId: section.sectionId
+              priority: 'critical'
             });
           }
         });
       }
     });
 
-    // 3. Add admin announcements
+    // 4. Add admin announcements
     alerts.push(...announcements);
 
     // Sort by priority
@@ -166,12 +215,11 @@ function TeacherDashboard({ onLogout, currentUser }) {
     setShowAttendanceModal(true);
   };
 
-  // Updated monitor handler
   const handleMonitorAttendance = (section) => {
     setSelectedSectionForMonitor(section);
     setMonitorContext(section.isHomeroom ? 'homeroom' : 'subject');
     setShowModal(false);
-    setShowMonitorModal(true); // Updated variable name
+    setShowMonitorModal(true);
   };
 
   const filteredSections = sections.filter(section =>
@@ -182,6 +230,50 @@ function TeacherDashboard({ onLogout, currentUser }) {
   const homeroomCount = sections.filter(s => s.isHomeroom).length;
   const subjectCount = sections.filter(s => !s.isHomeroom).length;
   const completedCount = sections.filter(s => s.attendanceTaken).length;
+
+  // Helper function to render schedule badge
+  const getScheduleDisplay = (section) => {
+    if (section.isHomeroom || !section.scheduleDisplay) return null;
+    return (
+      <span>
+        {section.scheduleDisplay}
+      </span>
+    );
+  };
+
+  // Helper function to get room display
+  const getRoomDisplay = (section) => {
+    if (section.isHomeroom) {
+      const grade = section.sectionData?.gradeLevel || '';
+      const sectionLetter = (section.sectionData?.sectionName || section.sectionData?.section || 'A').charAt(0);
+      return `Room ${grade}${sectionLetter}1`;
+    }
+    return `Room ${section.roomNumber || 'TBD'}`;
+  };
+
+  // Helper function to get header class based on subject
+const getHeaderClass = (section) => {
+  if (section.isHomeroom) return 'bg-warning text-dark';
+  
+  // For subjects with colors, use white text
+  const subjectColor = subjectColors[section.subject];
+  if (subjectColor) {
+    return 'text-white';
+  }
+  
+  return 'bg-light text-dark';
+};
+
+const getHeaderStyle = (section) => {
+  if (section.isHomeroom) return {};
+  
+  const subjectColor = subjectColors[section.subject];
+  if (subjectColor) {
+    console.log(`Applying color for ${section.subject}:`, subjectColor.hex);
+    return { backgroundColor: subjectColor.hex };
+  }
+  return {};
+};
 
   if (loading) {
     return (
@@ -240,155 +332,194 @@ function TeacherDashboard({ onLogout, currentUser }) {
           <div className="container-fluid py-3">
             <div className="d-flex justify-content-between align-items-center">
               <div>
-                <h4 className="mb-0">Teacher Dashboard - XYZ International School </h4>
-                <div className="d-flex gap-2 mt-1">
-                  <small className="text-muted"> Welcome {currentUser?.name || currentUser?.email}</small>
+                <h4 className="mb-0">Teacher Dashboard - XYZ International School</h4>
+                <div className="d-flex gap-2 mt-1 align-items-center">
+                  <small className="text-muted">Welcome {currentUser?.name || currentUser?.email}</small>
                   {currentUser?.roles?.includes('homeroom') && (
                     <span className="badge bg-warning text-dark">Homeroom Teacher</span>
                   )}
                   {currentUser?.roles?.includes('subject') && (
                     <span className="badge bg-info">Subject Teacher</span>
                   )}
+                  {/* NEW: Schedule context display */}
+                  {scheduleContext && (
+                    <span className="badge bg-light text-dark">
+                      <i className="bi bi-calendar-week me-1"></i>
+                      {scheduleContext.weekDisplay}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="d-flex align-items-center gap-2">
-                {/* Always show notification bell */}
+                {/* Notification bell */}
                 <div className="dropdown">
-                <button 
-                  className="btn btn-outline-secondary position-relative" 
-                  data-bs-toggle="dropdown"
-                  title={notifications.length > 0 ? `${notifications.length} notifications` : 'No notifications'}
-                >
-                  <i className="bi bi-bell"></i>
-                  {/* Only show badge if there are notifications */}
-                  {notifications.length > 0 && (
-                    <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                      {notifications.length}
-                    </span>
-                  )}
-                </button>
-                
-                <div className="dropdown-menu dropdown-menu-end" style={{ minWidth: '350px', maxHeight: '400px', overflowY: 'auto' }}>
-                  {notifications.length > 0 ? (
-                    <>
-                      <div className="dropdown-header">
-                        <strong>Notifications</strong>
-                        <small className="text-muted ms-2">({notifications.length} items)</small>
-                      </div>
-                      <div className="dropdown-divider"></div>
-                      
-                      {notifications.map((notif, index) => (
-                        <div key={index} className="dropdown-item-text p-2">
-                          <div className={`alert alert-${notif.type} mb-1 py-2`} style={{ fontSize: '13px' }}>
-                            <div className="d-flex align-items-start">
-                              <i className={`bi ${notif.icon} me-2 mt-1`} style={{ fontSize: '14px' }}></i>
-                              <div className="flex-grow-1">
-                                <div dangerouslySetInnerHTML={{ __html: notif.message }}></div>
-                                {notif.priority === 'critical' && (
-                                  <small className="badge bg-danger mt-1">Action Required</small>
-                                )}
+                  <button 
+                    className="btn btn-outline-secondary position-relative" 
+                    data-bs-toggle="dropdown"
+                    title={notifications.length > 0 ? `${notifications.length} notifications` : 'No notifications'}
+                  >
+                    <i className="bi bi-bell"></i>
+                    {notifications.length > 0 && (
+                      <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        {notifications.length}
+                      </span>
+                    )}
+                  </button>
+                  
+                  <div className="dropdown-menu dropdown-menu-end" style={{ minWidth: '350px', maxHeight: '400px', overflowY: 'auto' }}>
+                    {notifications.length > 0 ? (
+                      <>
+                        <div className="dropdown-header">
+                          <strong>Notifications</strong>
+                          <small className="text-muted ms-2">({notifications.length} items)</small>
+                        </div>
+                        <div className="dropdown-divider"></div>
+                        
+                        {notifications.map((notif, index) => (
+                          <div key={index} className="dropdown-item-text p-2">
+                            <div className={`alert alert-${notif.type} mb-1 py-2`} style={{ fontSize: '13px' }}>
+                              <div className="d-flex align-items-start">
+                                <i className={`bi ${notif.icon} me-2 mt-1`} style={{ fontSize: '14px' }}></i>
+                                <div className="flex-grow-1">
+                                  <div dangerouslySetInnerHTML={{ __html: notif.message }}></div>
+                                  {notif.priority === 'critical' && (
+                                    <small className="badge bg-danger mt-1">Action Required</small>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
+                        ))}
+                        
+                        <div className="dropdown-divider"></div>
+                        <div className="dropdown-item text-center">
+                          <small className="text-muted">
+                            <i className="bi bi-arrow-clockwise me-1"></i>
+                            Auto-refreshes every 30 seconds
+                          </small>
                         </div>
-                      ))}
-                      
-                      <div className="dropdown-divider"></div>
-                      <div className="dropdown-item text-center">
-                        <small className="text-muted">
-                          <i className="bi bi-arrow-clockwise me-1"></i>
-                          Auto-refreshes every 30 seconds
-                        </small>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="dropdown-header">
-                        <strong>Notifications</strong>
-                      </div>
-                      <div className="dropdown-divider"></div>
-                      <div className="dropdown-item-text text-center py-4">
-                        <i className="bi bi-check-circle text-success mb-2" style={{ fontSize: '2rem' }}></i>
-                        <div>
-                          <strong>All Clear!</strong>
+                      </>
+                    ) : (
+                      <>
+                        <div className="dropdown-header">
+                          <strong>Notifications</strong>
                         </div>
-                        <small className="text-muted">No notifications at this time</small>
-                      </div>
-                    </>
-                  )}
+                        <div className="dropdown-divider"></div>
+                        <div className="dropdown-item-text text-center py-4">
+                          <i className="bi bi-check-circle text-success mb-2" style={{ fontSize: '2rem' }}></i>
+                          <div>
+                            <strong>All Clear!</strong>
+                          </div>
+                          <small className="text-muted">No notifications at this time</small>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <button className="btn btn-outline-secondary" onClick={onLogout}>
-                <i className="bi bi-box-arrow-right me-1"></i>
-                Logout
-              </button>
-            </div>
+                <button className="btn btn-outline-secondary" onClick={onLogout}>
+                  <i className="bi bi-box-arrow-right me-1"></i>
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="container-fluid py-4">
-            {activeView === 'dashboard' ? (
-              <>
-                {/* Search and Stats */}
-                <div className="row mb-4">
-                  <div className="col-md-6">
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Search sections..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <div className="col-md-6">
-                    <div className="d-flex justify-content-md-end mt-2 mt-md-0 gap-4">
-                      <div className="text-center">
-                        <div className="h5 mb-0 text-warning">{homeroomCount}</div>
-                        <small className="text-muted">Homeroom</small>
+          {activeView === 'dashboard' ? (
+            <>
+              {/* Schedule info banner */}
+              {scheduleContext && (
+                <div className="alert alert-info border-0 mb-4">
+                  <div className="row align-items-center">
+                    <div className="col-md-8">
+                      <div className="d-flex align-items-center">
+                        <i className="bi bi-calendar-week me-2"></i>
+                        <div>
+                          <strong>Schedule Context:</strong> 
+                          {scheduleContext.weekDisplay} • {scheduleContext.currentDay.charAt(0).toUpperCase() + scheduleContext.currentDay.slice(1)}
+                          {scheduleContext.totalSubjectsFiltered > 0 && (
+                            <small className="text-muted ms-2">
+                              ({scheduleContext.totalSubjectsFiltered} subjects not scheduled today)
+                            </small>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-center">
-                        <div className="h5 mb-0 text-info">{subjectCount}</div>
-                        <small className="text-muted">Subject Classes</small>
-                      </div>
-                      <div className="text-center">
-                        <div className="h5 mb-0 text-success">{completedCount}</div>
-                        <small className="text-muted">Completed</small>
-                      </div>
+                    </div>
+                    <div className="col-md-4 text-md-end">
+                      <small className="text-muted">
+                        <i className="bi bi-info-circle me-1"></i>
+                        Only showing today's scheduled classes
+                      </small>
                     </div>
                   </div>
                 </div>
+              )}
 
-                {/* Sections Cards */}
-                {filteredSections.length > 0 ? (
-                  <div className="row g-3">
-                    {filteredSections.map((section) => (
-                      <div className="col-md-6 col-lg-4" key={section.id}>
+              {/* Search and Stats */}
+              <div className="row mb-4">
+                <div className="col-md-6">
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search sections..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <div className="col-md-6">
+                  <div className="d-flex justify-content-md-end mt-2 mt-md-0 gap-4">
+                    <div className="text-center">
+                      <div className="h5 mb-0 text-warning">{homeroomCount}</div>
+                      <small className="text-muted">Homeroom</small>
+                    </div>
+                    <div className="text-center">
+                      <div className="h5 mb-0 text-info">{subjectCount}</div>
+                      <small className="text-muted">Subject Classes</small>
+                    </div>
+                    <div className="text-center">
+                      <div className="h5 mb-0 text-success">{completedCount}</div>
+                      <small className="text-muted">Completed</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ✅ FIXED: Sections Cards with Unique Keys */}
+              {filteredSections.length > 0 ? (
+                <div className="row g-3">
+                  {filteredSections.map((section, index) => {
+                    // Generate a truly unique key that won't conflict
+                    const uniqueKey = section.isMultiSection 
+                      ? `multi-${section.subject}-${section.actualSectionIds?.join('-') || index}`
+                      : `single-${section.subject}-${section.sectionId || section.id || index}`;
+                      
+                    return (
+                      <div className="col-md-6 col-lg-4" key={uniqueKey}>
                         <div
                           className={`card border-2 ${section.attendanceTaken ? 'border-success' : 'border-warning'}`}
                           onClick={() => handleCardClick(section)}
                           style={{ cursor: 'pointer' }}
                         >
-                          {/* Card Header Layout */}
-                          <div className={`card-header ${
-                            section.isHomeroom ? 'bg-warning text-dark' :
-                            section.subject === 'Badminton' ? 'bg-secondary text-white' :
-                            'bg-light text-dark'
-                          } p-3`}>
+                          {/* Enhanced Card Header with Dynamic Colors */}
+                          <div 
+                            className={`card-header ${getHeaderClass(section)} p-3`}
+                            style={getHeaderStyle(section)}
+                          >
                             <div className="d-flex justify-content-between align-items-start">
-                              {/* LEFT SIDE - Subject Title and Room Number */}
-                              <div>
+                              {/* LEFT SIDE - Subject Title and Room */}
+                              <div className="flex-grow-1">
                                 <h6 className="mb-1 fw-bold">
                                   {section.isHomeroom && <i className="bi bi-house-door me-1"></i>}
                                   {section.subject || section.name}
                                 </h6>
-                                {!section.isHomeroom && (
-                                  <div className="small opacity-75">
-                                    <i className="bi bi-geo-alt me-1"></i>
-                                    Room {section.roomNumber || 'TBD'}
-                                  </div>
-                                )}
+                                
+                                {/* Room info */}
+                                <div className="small opacity-75 mt-1">
+                                  <i className="bi bi-geo-alt me-1"></i>
+                                  {getRoomDisplay(section)}
+                                </div>
                               </div>
 
                               {/* RIGHT SIDE - Status Badges */}
@@ -403,6 +534,12 @@ function TeacherDashboard({ onLogout, currentUser }) {
                                   <i className={`bi ${section.attendanceTaken ? 'bi-check-circle' : 'bi-clock'} me-1`}></i>
                                   {section.attendanceTaken ? 'Taken' : 'Pending'}
                                 </span>
+                                {getScheduleDisplay(section) && (
+                                  <div className="small opacity-75">
+                                    <i className="bi bi-clock me-1"></i>
+                                    {getScheduleDisplay(section)}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -451,42 +588,52 @@ function TeacherDashboard({ onLogout, currentUser }) {
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                  ) : (
-                  <div className="text-center py-5">
-                    <i className="bi bi-exclamation-circle display-4 text-muted"></i>
-                    <h5 className="mt-3">No sections found</h5>
-                    <p className="text-muted">
-                      {sections.length === 0 
-                        ? "You don't have any sections assigned yet. Please contact your administrator."
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Enhanced Empty state with schedule context */
+                <div className="text-center py-5">
+                  <i className="bi bi-calendar-x display-4 text-muted"></i>
+                  <h5 className="mt-3">
+                    {sections.length === 0 
+                      ? "No sections assigned" 
+                      : scheduleContext 
+                        ? `No classes scheduled for ${scheduleContext.currentDay}` 
+                        : "No sections found"
+                    }
+                  </h5>
+                  <p className="text-muted">
+                    {sections.length === 0 
+                      ? "You don't have any sections assigned yet. Please contact your administrator."
+                      : scheduleContext 
+                        ? `Enjoying a free period on ${scheduleContext.weekDisplay}!`
                         : "Try adjusting your search terms"
-                      }
-                    </p>
+                    }
+                  </p>
 
-                    {sections.length === 0 && (
-                      <div className="mt-4">
-                        <button className="btn btn-primary" onClick={loadTeacherData}>
-                          <i className="bi bi-arrow-clockwise me-1"></i>
-                          Retry Loading Data
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              // 🔮 Analytics Placeholder
-              <div className="text-center py-5">
-                <i className="bi bi-bar-chart-line display-4 text-primary"></i>
-                <h3 className="mt-3">Analytics Coming Soon</h3>
-                <p className="text-muted">
-                  This feature is currently being built. In the future, you’ll be able to view trends, student attendance summaries, and more!
-                </p>
-              </div>
-            )}
+                  {sections.length === 0 && (
+                    <div className="mt-4">
+                      <button className="btn btn-primary" onClick={loadTeacherData}>
+                        <i className="bi bi-arrow-clockwise me-1"></i>
+                        Retry Loading Data
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            // Analytics Placeholder
+            <div className="text-center py-5">
+              <i className="bi bi-bar-chart-line display-4 text-primary"></i>
+              <h3 className="mt-3">Analytics Coming Soon</h3>
+              <p className="text-muted">
+                This feature is currently being built. In the future, you'll be able to view trends, student attendance summaries, and more!
+              </p>
+            </div>
+          )}
         </div>
-
       </div>
 
       {/* Modal for section actions */}
@@ -498,7 +645,6 @@ function TeacherDashboard({ onLogout, currentUser }) {
               border: 'none',
               boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
             }}>
-              {/* Header with Icon and Title */}
               <div className="modal-header bg-white border-0 text-center py-4">
                 <div className="w-100">
                   <div className="mb-3">
@@ -511,10 +657,16 @@ function TeacherDashboard({ onLogout, currentUser }) {
                   }}>
                     {selectedSection.isHomeroom ? 'Homeroom Options' : `${selectedSection.subject} Options`}
                   </h5>
+                  {/* Show schedule info in modal */}
+                  {selectedSection.scheduleDisplay && (
+                    <small className="text-muted">
+                      <i className="bi bi-clock me-1"></i>
+                      {selectedSection.scheduleDisplay}
+                    </small>
+                  )}
                 </div>
               </div>
 
-              {/* Body with Action Buttons */}
               <div className="modal-body px-4 pb-4 pt-0">
                 <div className="d-grid gap-3">
                   <button 
@@ -571,7 +723,6 @@ function TeacherDashboard({ onLogout, currentUser }) {
           onClose={() => {
             setShowAttendanceModal(false);
             setSelectedSection(null);
-            // Refresh data after attendance is taken
             loadTeacherData();
           }}
           subjectColors={subjectColors}
@@ -579,7 +730,7 @@ function TeacherDashboard({ onLogout, currentUser }) {
         />
       )}
 
-      {/* Updated Monitor Modal */}
+      {/* Monitor Modal */}
       {showMonitorModal && selectedSectionForMonitor && (
         <MonitorModal
           currentUser={currentUser}

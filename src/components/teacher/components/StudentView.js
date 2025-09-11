@@ -1,4 +1,4 @@
-// src/components/teacher/components/StudentsView.js - FIXED VERSION
+// src/components/teacher/components/StudentsView.js - ENHANCED WITH TIMESTAMPS
 import React, { useState, useMemo } from 'react';
 import { calculateOverallStudentSummary } from '../utils/monitorCalculations';
 
@@ -21,19 +21,58 @@ const StudentView = ({
     // Get attendance data for selected date
     const dateAttendanceData = attendanceData[selectedDate] || historicalData[selectedDate] || {};
 
-    // Helper functions - MOVED TO TOP LEVEL
+    // ✅ NEW: Enhanced date formatting function
+    const formatNiceDate = (dateString) => {
+        const date = new Date(dateString);
+        const options = { 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        };
+        return date.toLocaleDateString('en-US', options);
+    };
+
+    // ✅ NEW: Format timestamp for display
+    const formatTimestamp = (timestamp) => {
+        if (!timestamp) return 'Unknown time';
+        
+        try {
+            let date;
+            
+            // Handle different timestamp formats
+            if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+                // Firestore timestamp
+                date = timestamp.toDate();
+            } else if (typeof timestamp === 'string') {
+                date = new Date(timestamp);
+            } else if (timestamp instanceof Date) {
+                date = timestamp;
+            } else {
+                return 'Unknown time';
+            }
+            
+            // Format as "2:30 PM"
+            return date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+        } catch (error) {
+            console.error('Error formatting timestamp:', error);
+            return 'Unknown time';
+        }
+    };
+
+    // Helper functions
     const getRoomDisplay = (subject) => {
-        // Special case for Homeroom - don't show room
         if (subject.name === 'Homeroom' || subject.code === 'HR') {
-            return ''; // Show nothing for homeroom
+            return '';
         }
         
-        // For other subjects, show room if available
         if (subject.room) {
             return `Room ${subject.room}`;
         }
         
-        // If no room data, show "TBA" (To Be Assigned)
         return 'Room TBA';
     };
 
@@ -115,37 +154,50 @@ const StudentView = ({
         if (studentRecord.notes && studentRecord.notes.trim()) {
             display += '📝';
         }
+
+        // ✅ NEW: Enhanced tooltip with timestamp
+        let tooltip = `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}`;
+        
+        // Add timestamp info to tooltip
+        if (subjectData.teacherName) {
+            tooltip += ` - Taken by ${subjectData.teacherName}`;
+        }
+        
+        if (subjectData.time) {
+            tooltip += ` at ${subjectData.time}`;
+        } else if (subjectData.timestamp) {
+            tooltip += ` at ${formatTimestamp(subjectData.timestamp)}`;
+        }
+        
+        if (studentRecord.notes) {
+            tooltip += ` - ${studentRecord.notes}`;
+        }
+        
+        if (hasBehaviorIssue) {
+            tooltip += ' (Behavior Issue)';
+        }
         
         return {
             type: 'taken',
             display,
             className,
-            tooltip: `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}${studentRecord.notes ? ` - ${studentRecord.notes}` : ''}${hasBehaviorIssue ? ' (Behavior Issue)' : ''}`,
+            tooltip,
             record: studentRecord,
-            hasBehaviorFlag: hasBehaviorIssue
+            hasBehaviorFlag: hasBehaviorIssue,
+            // ✅ NEW: Include timestamp data
+            timestamp: subjectData.time || formatTimestamp(subjectData.timestamp),
+            takenBy: subjectData.teacherName
         };
     };
 
     // Enhanced student record matching
     const findStudentRecord = (student, attendanceStudents) => {
-        // Try multiple matching strategies
         const strategies = [
-            // Strategy 1: Exact name match
             (s) => s.studentName === `${student.firstName} ${student.lastName}`,
-            
-            // Strategy 2: Student ID match
             (s) => s.studentId === student.id || s.studentId === student.studentId,
-            
-            // Strategy 3: Reverse name match
             (s) => s.studentName === `${student.lastName}, ${student.firstName}`,
-            
-            // Strategy 4: Case insensitive name match
             (s) => s.studentName?.toLowerCase() === `${student.firstName} ${student.lastName}`.toLowerCase(),
-            
-            // Strategy 5: Partial name match (first name only)
             (s) => s.studentName?.toLowerCase().includes(student.firstName.toLowerCase()),
-            
-            // Strategy 6: Student number/ID variations
             (s) => s.studentNumber === student.studentId || s.student_id === student.id
         ];
 
@@ -161,7 +213,6 @@ const StudentView = ({
 
     // Enhanced behavior flag detection
     const checkBehaviorFlag = (studentRecord) => {
-        // Check all possible behavior flag fields
         const behaviorFields = [
             'hasBehaviorIssue',
             'hasFlag',
@@ -180,7 +231,6 @@ const StudentView = ({
             }
         }
 
-        // Check for behavior in notes (common pattern)
         if (studentRecord.notes && typeof studentRecord.notes === 'string') {
             const behaviorKeywords = ['behavior', 'disruptive', 'misconduct', 'inappropriate', 'discipline', 'warned'];
             const hasKeyword = behaviorKeywords.some(keyword => 
@@ -197,12 +247,10 @@ const StudentView = ({
 
     // Check if student is enrolled in subject
     const checkStudentEnrollment = (student, subject) => {
-        // For homeroom, all students are enrolled
         if (subject.name === 'Homeroom') {
             return true;
         }
 
-        // Check subjectEnrollments array
         if (student.subjectEnrollments && Array.isArray(student.subjectEnrollments)) {
             const enrolled = student.subjectEnrollments.some(enrollment => {
                 const subjectName = enrollment.subjectName || enrollment.subject || enrollment.name;
@@ -211,7 +259,6 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
-        // Check selectedSubjects array
         if (student.selectedSubjects && Array.isArray(student.selectedSubjects)) {
             const enrolled = student.selectedSubjects.some(selectedSubject =>
                 selectedSubject && selectedSubject.toLowerCase() === subject.name.toLowerCase()
@@ -219,7 +266,6 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
-        // Check subjects array
         if (student.subjects && Array.isArray(student.subjects)) {
             const enrolled = student.subjects.some(s => 
                 s && s.toLowerCase() === subject.name.toLowerCase()
@@ -227,7 +273,6 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
-        // Check direct subject field
         if (student.subject && student.subject.toLowerCase() === subject.name.toLowerCase()) {
             return true;
         }
@@ -295,12 +340,10 @@ const StudentView = ({
         }
     };
 
-    // Handle student name click
     const handleStudentClick = (student) => {
         setSelectedStudent(student);
     };
 
-    // Quick date navigation
     const goToToday = () => {
         setSelectedDate(new Date().toISOString().split('T')[0]);
     };
@@ -339,7 +382,7 @@ const StudentView = ({
                 {/* Student's Subject Attendance */}
                 <div className="card">
                     <div className="card-header">
-                        <h6 className="mb-0">Subject Attendance - {new Date(selectedDate).toLocaleDateString()}</h6>
+                        <h6 className="mb-0">Subject Attendance - {formatNiceDate(selectedDate)}</h6>
                     </div>
                     <div className="card-body">
                         <div className="row g-2">
@@ -364,13 +407,22 @@ const StudentView = ({
                                                                 {subject.code}
                                                             </span>
                                                             {subject.name}
-                                                            {/* Show behavior flag in student detail */}
                                                             {cell.hasBehaviorFlag && (
                                                                 <span className="ms-2">🚩</span>
                                                             )}
                                                         </h6>
                                                         {!isEnrolled && (
                                                             <small className="text-muted">Not enrolled</small>
+                                                        )}
+                                                        {/* ✅ NEW: Show timestamp in student detail */}
+                                                        {isEnrolled && cell.type === 'taken' && cell.timestamp && (
+                                                            <div>
+                                                                <small className="text-muted">
+                                                                    <i className="bi bi-clock me-1"></i>
+                                                                    Taken at {cell.timestamp}
+                                                                    {cell.takenBy && ` by ${cell.takenBy}`}
+                                                                </small>
+                                                            </div>
                                                         )}
                                                     </div>
                                                     <div className="text-center">
@@ -490,7 +542,7 @@ const StudentView = ({
                 </div>
             </div>
 
-            {/* Legend */}
+            {/* ✅ NEW: Enhanced Legend with timestamp info */}
             <div className="card border-0 bg-light mb-3">
                 <div className="card-body p-2">
                     <div className="row">
@@ -512,6 +564,13 @@ const StudentView = ({
                                 <span><em className="text-muted">(blank) Not Enrolled</em></span>
                             </div>
                         </div>
+                    </div>
+                    {/* ✅ NEW: Add timestamp info to legend */}
+                    <div className="mt-2 pt-2 border-top">
+                        <small className="text-muted">
+                            <i className="bi bi-info-circle me-1"></i>
+                            Hover over attendance symbols to see timestamps and teacher info
+                        </small>
                     </div>
                 </div>
             </div>
@@ -625,10 +684,10 @@ const StudentView = ({
                 </table>
             </div>
 
-            {/* Footer Info */}
+            {/* ✅ NEW: Enhanced Footer Info with better date */}
             <div className="d-flex justify-content-between align-items-center mt-2">
                 <small className="text-muted">
-                    Showing {filteredAndSortedStudents.length} of {students.length} students for {new Date(selectedDate).toLocaleDateString()}
+                    Showing {filteredAndSortedStudents.length} of {students.length} students for {formatNiceDate(selectedDate)}
                     {searchTerm && ` • Filtered by "${searchTerm}"`}
                 </small>
                 <small className="text-muted">
@@ -636,7 +695,7 @@ const StudentView = ({
                 </small>
             </div>
 
-            {/* Cell Detail Modal */}
+            {/* Enhanced Cell Detail Modal */}
             {selectedCell && (
                 <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
                     <div className="modal-dialog">
@@ -657,7 +716,7 @@ const StudentView = ({
                                     <div className="col-6">
                                         <strong>Date:</strong>
                                         <div className="text-muted">
-                                            {new Date(selectedCell.date).toLocaleDateString()}
+                                            {formatNiceDate(selectedCell.date)}
                                         </div>
                                     </div>
                                     <div className="col-6">
@@ -703,6 +762,30 @@ const StudentView = ({
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {/* ✅ NEW: Add timestamp section */}
+                                        {(selectedCell.cell.timestamp || selectedCell.cell.takenBy) && (
+                                            <div className="row mb-3">
+                                                <div className="col-12">
+                                                    <strong>Attendance Details:</strong>
+                                                    <div className="mt-1">
+                                                        {selectedCell.cell.timestamp && (
+                                                            <div className="text-muted">
+                                                                <i className="bi bi-clock me-1"></i>
+                                                                Taken at: {selectedCell.cell.timestamp}
+                                                            </div>
+                                                        )}
+                                                        {selectedCell.cell.takenBy && (
+                                                            <div className="text-muted">
+                                                                <i className="bi bi-person me-1"></i>
+                                                                Taken by: {selectedCell.cell.takenBy}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {selectedCell.cell.record.notes && (
                                             <div className="mt-3">
                                                 <strong>Notes:</strong>
