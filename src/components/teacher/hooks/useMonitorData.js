@@ -154,7 +154,8 @@ export const useMonitorData = (sectionData, monitorContext, focusSubjects) => {
                         id: doc.id,
                         name: subjectData.name,
                         code: subjectData.code || subjectData.name.substring(0, 3).toUpperCase(),
-                        color: subjectData.color || '#6c757d'
+                        color: subjectData.color || '#6c757d',
+                        schedule: subjectData.schedule
                     });
                 });
 

@@ -15,6 +15,8 @@ import { db } from '../services/firebase';
 
 import MonitorModal from './../components/teacher/MonitorModal';
 import AttendanceModal from './../components/teacher/AttendanceModal';
+import { testWithMockData } from '../components/teacher/utils/scheduleHelpers';
+
 
 function TeacherDashboard({ onLogout, currentUser }) {
   const [sections, setSections] = useState([]);
@@ -40,10 +42,14 @@ function TeacherDashboard({ onLogout, currentUser }) {
     if (!currentUser?.uid && !currentUser?.email) {
       setLoading(false);
       return;
+
     }
     
     // Get initial data
     loadTeacherData();
+
+    console.log('Testing schedule helper with mock data:');
+    testWithMockData();
     
     // Setup real-time listeners
     const unsubscribers = [];

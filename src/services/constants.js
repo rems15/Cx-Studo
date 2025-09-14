@@ -9,7 +9,8 @@ export const ATTENDANCE_STATUS = {
 export const USER_ROLES = {
     ADMIN: 'admin',
     HOMEROOM: 'homeroom',
-    SUBJECT: 'subject'
+    SUBJECT: 'subject',
+    SUPERVISOR: 'supervisor'
 };
 
 export const COLLECTION_NAMES = {

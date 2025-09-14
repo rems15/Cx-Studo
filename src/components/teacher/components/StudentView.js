@@ -1,6 +1,8 @@
-// src/components/teacher/components/StudentsView.js - ENHANCED WITH TIMESTAMPS
+// src/components/teacher/components/StudentsView.js - Updated with Smart Filtering + monitorContext
 import React, { useState, useMemo } from 'react';
 import { calculateOverallStudentSummary } from '../utils/monitorCalculations';
+import { getScheduledSubjectsForDate, testScheduleHelpers } from '../utils/scheduleHelpers';
+
 
 const StudentView = ({ 
     students, 
@@ -11,68 +13,60 @@ const StudentView = ({
     setSelectedDate,
     searchTerm, 
     setSearchTerm, 
-    currentWeekStart 
+    currentWeekStart,
+    monitorContext  // NEW: Added prop
 }) => {
     const [sortBy, setSortBy] = useState('name');
     const [sortDirection, setSortDirection] = useState('asc');
     const [selectedCell, setSelectedCell] = useState(null);
     const [selectedStudent, setSelectedStudent] = useState(null);
+    
+    // NEW: Smart filtering state
+    const [showAllSubjects, setShowAllSubjects] = useState(false);
+
+    // ADD THIS for debugging (remove later):
+    React.useEffect(() => {
+        if (subjects.length > 0) {
+            console.log('🔥 LIVE DATA - Subjects loaded:', subjects.map(s => ({
+                name: s.name,
+                schedule: s.schedule
+            })));
+        }
+    }, [subjects]);
+
+    // ✅ UPDATED: Smart subject filtering with monitorContext
+    const displaySubjects = useMemo(() => {
+        // If manually toggled to show all, always show all
+        if (showAllSubjects) {
+            return subjects;
+        }
+        
+        // ✅ NEW: For subject teachers, show all subjects by default
+        // Only homeroom teachers get smart filtering
+        if (monitorContext === 'subject') {
+            return subjects; // Show all subjects for subject teachers
+        }
+        
+        // Smart filtering only for homeroom teachers (show today's scheduled subjects)
+        return getScheduledSubjectsForDate(subjects, selectedDate);
+    }, [subjects, selectedDate, showAllSubjects, monitorContext]);
 
     // Get attendance data for selected date
     const dateAttendanceData = attendanceData[selectedDate] || historicalData[selectedDate] || {};
 
-    // ✅ NEW: Enhanced date formatting function
-    const formatNiceDate = (dateString) => {
-        const date = new Date(dateString);
-        const options = { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        };
-        return date.toLocaleDateString('en-US', options);
-    };
-
-    // ✅ NEW: Format timestamp for display
-    const formatTimestamp = (timestamp) => {
-        if (!timestamp) return 'Unknown time';
-        
-        try {
-            let date;
-            
-            // Handle different timestamp formats
-            if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-                // Firestore timestamp
-                date = timestamp.toDate();
-            } else if (typeof timestamp === 'string') {
-                date = new Date(timestamp);
-            } else if (timestamp instanceof Date) {
-                date = timestamp;
-            } else {
-                return 'Unknown time';
-            }
-            
-            // Format as "2:30 PM"
-            return date.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            });
-        } catch (error) {
-            console.error('Error formatting timestamp:', error);
-            return 'Unknown time';
-        }
-    };
-
-    // Helper functions
+    // Helper functions - MOVED TO TOP LEVEL
     const getRoomDisplay = (subject) => {
+        // Special case for Homeroom - don't show room
         if (subject.name === 'Homeroom' || subject.code === 'HR') {
-            return '';
+            return ''; // Show nothing for homeroom
         }
         
+        // For other subjects, show room if available
         if (subject.room) {
             return `Room ${subject.room}`;
         }
         
+        // If no room data, show "TBA" (To Be Assigned)
         return 'Room TBA';
     };
 
@@ -154,50 +148,37 @@ const StudentView = ({
         if (studentRecord.notes && studentRecord.notes.trim()) {
             display += '📝';
         }
-
-        // ✅ NEW: Enhanced tooltip with timestamp
-        let tooltip = `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}`;
-        
-        // Add timestamp info to tooltip
-        if (subjectData.teacherName) {
-            tooltip += ` - Taken by ${subjectData.teacherName}`;
-        }
-        
-        if (subjectData.time) {
-            tooltip += ` at ${subjectData.time}`;
-        } else if (subjectData.timestamp) {
-            tooltip += ` at ${formatTimestamp(subjectData.timestamp)}`;
-        }
-        
-        if (studentRecord.notes) {
-            tooltip += ` - ${studentRecord.notes}`;
-        }
-        
-        if (hasBehaviorIssue) {
-            tooltip += ' (Behavior Issue)';
-        }
         
         return {
             type: 'taken',
             display,
             className,
-            tooltip,
+            tooltip: `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}${studentRecord.notes ? ` - ${studentRecord.notes}` : ''}${hasBehaviorIssue ? ' (Behavior Issue)' : ''}`,
             record: studentRecord,
-            hasBehaviorFlag: hasBehaviorIssue,
-            // ✅ NEW: Include timestamp data
-            timestamp: subjectData.time || formatTimestamp(subjectData.timestamp),
-            takenBy: subjectData.teacherName
+            hasBehaviorFlag: hasBehaviorIssue
         };
     };
 
     // Enhanced student record matching
     const findStudentRecord = (student, attendanceStudents) => {
+        // Try multiple matching strategies
         const strategies = [
+            // Strategy 1: Exact name match
             (s) => s.studentName === `${student.firstName} ${student.lastName}`,
+            
+            // Strategy 2: Student ID match
             (s) => s.studentId === student.id || s.studentId === student.studentId,
+            
+            // Strategy 3: Reverse name match
             (s) => s.studentName === `${student.lastName}, ${student.firstName}`,
+            
+            // Strategy 4: Case insensitive name match
             (s) => s.studentName?.toLowerCase() === `${student.firstName} ${student.lastName}`.toLowerCase(),
+            
+            // Strategy 5: Partial name match (first name only)
             (s) => s.studentName?.toLowerCase().includes(student.firstName.toLowerCase()),
+            
+            // Strategy 6: Student number/ID variations
             (s) => s.studentNumber === student.studentId || s.student_id === student.id
         ];
 
@@ -213,6 +194,7 @@ const StudentView = ({
 
     // Enhanced behavior flag detection
     const checkBehaviorFlag = (studentRecord) => {
+        // Check all possible behavior flag fields
         const behaviorFields = [
             'hasBehaviorIssue',
             'hasFlag',
@@ -231,6 +213,7 @@ const StudentView = ({
             }
         }
 
+        // Check for behavior in notes (common pattern)
         if (studentRecord.notes && typeof studentRecord.notes === 'string') {
             const behaviorKeywords = ['behavior', 'disruptive', 'misconduct', 'inappropriate', 'discipline', 'warned'];
             const hasKeyword = behaviorKeywords.some(keyword => 
@@ -247,10 +230,12 @@ const StudentView = ({
 
     // Check if student is enrolled in subject
     const checkStudentEnrollment = (student, subject) => {
+        // For homeroom, all students are enrolled
         if (subject.name === 'Homeroom') {
             return true;
         }
 
+        // Check subjectEnrollments array
         if (student.subjectEnrollments && Array.isArray(student.subjectEnrollments)) {
             const enrolled = student.subjectEnrollments.some(enrollment => {
                 const subjectName = enrollment.subjectName || enrollment.subject || enrollment.name;
@@ -259,6 +244,7 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
+        // Check selectedSubjects array
         if (student.selectedSubjects && Array.isArray(student.selectedSubjects)) {
             const enrolled = student.selectedSubjects.some(selectedSubject =>
                 selectedSubject && selectedSubject.toLowerCase() === subject.name.toLowerCase()
@@ -266,6 +252,7 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
+        // Check subjects array
         if (student.subjects && Array.isArray(student.subjects)) {
             const enrolled = student.subjects.some(s => 
                 s && s.toLowerCase() === subject.name.toLowerCase()
@@ -273,6 +260,7 @@ const StudentView = ({
             if (enrolled) return true;
         }
 
+        // Check direct subject field
         if (student.subject && student.subject.toLowerCase() === subject.name.toLowerCase()) {
             return true;
         }
@@ -280,9 +268,9 @@ const StudentView = ({
         return false;
     };
 
-    // Get summary stats
+    // Get summary stats using displaySubjects (filtered subjects)
     const getSummaryStats = () => {
-        return calculateOverallStudentSummary(students, subjects, { [selectedDate]: dateAttendanceData });
+        return calculateOverallStudentSummary(students, displaySubjects, { [selectedDate]: dateAttendanceData });
     };
 
     const stats = getSummaryStats();
@@ -340,10 +328,12 @@ const StudentView = ({
         }
     };
 
+    // Handle student name click
     const handleStudentClick = (student) => {
         setSelectedStudent(student);
     };
 
+    // Quick date navigation
     const goToToday = () => {
         setSelectedDate(new Date().toISOString().split('T')[0]);
     };
@@ -382,11 +372,11 @@ const StudentView = ({
                 {/* Student's Subject Attendance */}
                 <div className="card">
                     <div className="card-header">
-                        <h6 className="mb-0">Subject Attendance - {formatNiceDate(selectedDate)}</h6>
+                        <h6 className="mb-0">Subject Attendance - {new Date(selectedDate).toLocaleDateString()}</h6>
                     </div>
                     <div className="card-body">
                         <div className="row g-2">
-                            {subjects.map(subject => {
+                            {displaySubjects.map(subject => {
                                 const cell = getAttendanceCell(selectedStudent, subject);
                                 const isEnrolled = cell.type !== 'not-enrolled';
                                 
@@ -407,22 +397,13 @@ const StudentView = ({
                                                                 {subject.code}
                                                             </span>
                                                             {subject.name}
+                                                            {/* Show behavior flag in student detail */}
                                                             {cell.hasBehaviorFlag && (
                                                                 <span className="ms-2">🚩</span>
                                                             )}
                                                         </h6>
                                                         {!isEnrolled && (
                                                             <small className="text-muted">Not enrolled</small>
-                                                        )}
-                                                        {/* ✅ NEW: Show timestamp in student detail */}
-                                                        {isEnrolled && cell.type === 'taken' && cell.timestamp && (
-                                                            <div>
-                                                                <small className="text-muted">
-                                                                    <i className="bi bi-clock me-1"></i>
-                                                                    Taken at {cell.timestamp}
-                                                                    {cell.takenBy && ` by ${cell.takenBy}`}
-                                                                </small>
-                                                            </div>
                                                         )}
                                                     </div>
                                                     <div className="text-center">
@@ -471,6 +452,22 @@ const StudentView = ({
                         onChange={(e) => setSearchTerm(e.target.value)}
                         style={{ width: '200px' }}
                     />
+                    
+                    {/* ✅ NEW: Smart subject toggle - only show for homeroom teachers */}
+                    {monitorContext === 'homeroom' && (
+                        <div className="form-check form-switch">
+                            <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id="showAllSubjects"
+                                checked={showAllSubjects}
+                                onChange={(e) => setShowAllSubjects(e.target.checked)}
+                            />
+                            <label className="form-check-label" htmlFor="showAllSubjects">
+                                <small>Show all subjects</small>
+                            </label>
+                        </div>
+                    )}
                 </div>
                 
                 <div className="d-flex align-items-center gap-2">
@@ -497,6 +494,32 @@ const StudentView = ({
                     </div>
                 </div>
             </div>
+
+            {/* ✅ NEW: Context indicator */}
+            {monitorContext === 'subject' && (
+                <div className="alert alert-info alert-dismissible border-0 py-2 mb-3">
+                    <small>
+                        <i className="bi bi-info-circle me-1"></i>
+                        <strong>Subject Teacher View:</strong> Showing all subjects automatically. 
+                        Use the "Show scheduled only" toggle if you need to filter.
+                    </small>
+                </div>
+            )}
+
+    
+            {monitorContext === 'homeroom' && showAllSubjects && (
+                <div className="mb-2">
+                    <small className="text-muted">
+                        Showing all {subjects.length} subjects
+                        <button 
+                            className="btn btn-link btn-sm p-0 ms-2"
+                            onClick={() => setShowAllSubjects(false)}
+                        >
+                            Show scheduled only
+                        </button>
+                    </small>
+                </div>
+            )}
 
             {/* Summary Stats */}
             <div className="row mb-3 g-2">
@@ -542,7 +565,7 @@ const StudentView = ({
                 </div>
             </div>
 
-            {/* ✅ NEW: Enhanced Legend with timestamp info */}
+            {/* Legend */}
             <div className="card border-0 bg-light mb-3">
                 <div className="card-body p-2">
                     <div className="row">
@@ -565,17 +588,10 @@ const StudentView = ({
                             </div>
                         </div>
                     </div>
-                    {/* ✅ NEW: Add timestamp info to legend */}
-                    <div className="mt-2 pt-2 border-top">
-                        <small className="text-muted">
-                            <i className="bi bi-info-circle me-1"></i>
-                            Hover over attendance symbols to see timestamps and teacher info
-                        </small>
-                    </div>
                 </div>
             </div>
 
-            {/* Compact Table Layout */}
+            {/* Compact Table Layout - NOW USES displaySubjects (filtered) */}
             <div className="table-responsive">
                 <table className="table table-sm table-hover" style={{ width: 'auto' }}>
                     <thead className="table-light sticky-top">
@@ -595,7 +611,8 @@ const StudentView = ({
                                 Grade/Section
                                 <i className={`bi ${getSortIcon('section')} ms-1`}></i>
                             </th>
-                            {subjects.map(subject => (
+                            {/* NOW RENDERS displaySubjects (filtered) INSTEAD OF subjects */}
+                            {displaySubjects.map(subject => (
                                 <th 
                                     key={subject.id} 
                                     className="text-center"
@@ -657,7 +674,8 @@ const StudentView = ({
                                         {student.gradeLevel || 'N/A'}-{student.section || student.sectionName || 'N/A'}
                                     </small>
                                 </td>
-                                {subjects.map(subject => {
+                                {/* NOW RENDERS displaySubjects (filtered) INSTEAD OF subjects */}
+                                {displaySubjects.map(subject => {
                                     const cell = getAttendanceCell(student, subject);
                                     return (
                                         <td 
@@ -684,18 +702,25 @@ const StudentView = ({
                 </table>
             </div>
 
-            {/* ✅ NEW: Enhanced Footer Info with better date */}
+            {/* Footer Info */}
             <div className="d-flex justify-content-between align-items-center mt-2">
                 <small className="text-muted">
-                    Showing {filteredAndSortedStudents.length} of {students.length} students for {formatNiceDate(selectedDate)}
+                    Showing {filteredAndSortedStudents.length} of {students.length} students for {new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     {searchTerm && ` • Filtered by "${searchTerm}"`}
+                    {/* ✅ NEW: Show subject filter info */}
+                    {monitorContext === 'homeroom' && !showAllSubjects && displaySubjects.length < subjects.length && (
+                        <span className="text-info"> • Showing scheduled subjects only</span>
+                    )}
+                    {monitorContext === 'subject' && (
+                        <span className="text-info"> • Subject teacher view (all subjects)</span>
+                    )}
                 </small>
                 <small className="text-muted">
                     Last updated: {new Date().toLocaleTimeString()}
                 </small>
             </div>
 
-            {/* Enhanced Cell Detail Modal */}
+            {/* Cell Detail Modal - unchanged */}
             {selectedCell && (
                 <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
                     <div className="modal-dialog">
@@ -716,7 +741,7 @@ const StudentView = ({
                                     <div className="col-6">
                                         <strong>Date:</strong>
                                         <div className="text-muted">
-                                            {formatNiceDate(selectedCell.date)}
+                                            {new Date(selectedCell.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                                         </div>
                                     </div>
                                     <div className="col-6">
@@ -762,30 +787,6 @@ const StudentView = ({
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* ✅ NEW: Add timestamp section */}
-                                        {(selectedCell.cell.timestamp || selectedCell.cell.takenBy) && (
-                                            <div className="row mb-3">
-                                                <div className="col-12">
-                                                    <strong>Attendance Details:</strong>
-                                                    <div className="mt-1">
-                                                        {selectedCell.cell.timestamp && (
-                                                            <div className="text-muted">
-                                                                <i className="bi bi-clock me-1"></i>
-                                                                Taken at: {selectedCell.cell.timestamp}
-                                                            </div>
-                                                        )}
-                                                        {selectedCell.cell.takenBy && (
-                                                            <div className="text-muted">
-                                                                <i className="bi bi-person me-1"></i>
-                                                                Taken by: {selectedCell.cell.takenBy}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
                                         {selectedCell.cell.record.notes && (
                                             <div className="mt-3">
                                                 <strong>Notes:</strong>

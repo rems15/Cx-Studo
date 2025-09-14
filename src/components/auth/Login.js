@@ -52,17 +52,18 @@ export default function Login({ onLogin }) {
         }
 
         // 5. Normal login - go to dashboard
-        const userProfile = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          name: userData.name,
-          roles: userData.roles || [],
-          sections: userData.sections || [],
-          gradeLevels: userData.gradeLevels || [],
-          subjects: userData.subjects || [],
-          homeroomClass: userData.homeroomClass || '',
-          status: userData.status
-        };
+      const userProfile = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: userData.name,
+        roles: userData.roles || [],
+        userType: userData.userType || 'teacher', // ✅ ADD THIS LINE
+        sections: userData.sections || [],
+        gradeLevels: userData.gradeLevels || [],
+        subjects: userData.subjects || [],
+        homeroomClass: userData.homeroomClass || '',
+        status: userData.status
+      };
 
         onLogin(userProfile);
       } else {

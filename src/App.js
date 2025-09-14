@@ -9,6 +9,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import Login from './components/auth/Login';
 import AdminDashboard from './pages/AdminDashboard';
 import TeacherDashboard from './pages/TeacherDashboard';
+import SupervisorDashboard from './pages/SupervisorDashboard';
 
 
 
@@ -48,6 +49,7 @@ function App() {
                                 email: fbUser.email,
                                 name: userData.name || fbUser.displayName,
                                 roles: userData.roles || [],
+                                userType: userData.userType || 'teacher',
                                 sections: userData.sections || [],
                                 gradeLevels: userData.gradeLevels || [],
                                 subjects: userData.subjects || [],
@@ -120,12 +122,21 @@ function App() {
     // Show appropriate dashboard based on complete user profile
 
     const isAdmin = user.email?.includes('admin') || user.roles?.includes('admin');
-    
+    const isSupervisor = user.roles?.includes('supervisor') || user.userType === 'supervisor'; // ✅ ADD THIS LINE
+
     if (isAdmin) {
         console.log('👑 App: Showing AdminDashboard');
         return (
             <AdminDashboard 
                 currentUser={user} 
+                onLogout={handleLogout}
+            />
+        );
+    } else if (isSupervisor) { // ✅ ADD THIS ENTIRE BLOCK
+        console.log('👁️ App: Showing SupervisorDashboard');
+        return (
+            <SupervisorDashboard 
+                currentUser={user}
                 onLogout={handleLogout}
             />
         );
