@@ -436,9 +436,50 @@ export const getTeacherSections = async (currentUser, showAllClasses = false) =>
   }
 };
 
+// export const getTodayAttendance = async () => {
+//   try {
+//     const today = new Date().toISOString().split('T')[0];
+    
+//     const attendanceQuery = query(
+//       collection(db, 'attendance'),
+//       where('date', '==', today)
+//     );
+    
+//     const attendanceSnapshot = await getDocs(attendanceQuery);
+//     const attendanceData = {};
+    
+//     attendanceSnapshot.forEach(doc => {
+//       const data = doc.data();
+//       const sectionId = data.sectionId;
+//       const subject = data.subject;
+//       const isHomeroom = data.isHomeroom || data.subject === 'Homeroom';
+      
+//       if (!attendanceData[sectionId]) {
+//         attendanceData[sectionId] = {};
+//       }
+      
+//       const key = isHomeroom ? 'homeroom' : subject.toLowerCase().replace(/\s+/g, '-');
+//       attendanceData[sectionId][key] = {
+//         docId: doc.id,
+//         takenBy: data.teacherName,
+//         time: data.createdAt?.toDate?.() ? data.createdAt.toDate().toLocaleTimeString() : 
+//               data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toLocaleTimeString() : 'Unknown'
+//       };
+//     });
+    
+//     return attendanceData;
+//   } catch (error) {
+//     console.error('Error getting today attendance:', error);
+//     return {};
+//   }
+// };
+
+// Replace your getTodayAttendance function in teacherService.js with this:
+
 export const getTodayAttendance = async () => {
   try {
     const today = new Date().toISOString().split('T')[0];
+    console.log('🔍 Loading attendance for date:', today);
     
     const attendanceQuery = query(
       collection(db, 'attendance'),
@@ -448,28 +489,65 @@ export const getTodayAttendance = async () => {
     const attendanceSnapshot = await getDocs(attendanceQuery);
     const attendanceData = {};
     
+    console.log(`📊 Found ${attendanceSnapshot.size} attendance records`);
+    
     attendanceSnapshot.forEach(doc => {
       const data = doc.data();
-      const sectionId = data.sectionId;
-      const subject = data.subject;
-      const isHomeroom = data.isHomeroom || data.subject === 'Homeroom';
+      console.log('📋 Processing record:', doc.id, data);
       
-      if (!attendanceData[sectionId]) {
-        attendanceData[sectionId] = {};
+      // Determine the subject key to match your dashboard
+      const subjectKey = data.isHomeroom ? 'Homeroom' : (data.subjectName || data.subject);
+      
+      if (!subjectKey) {
+        console.warn('⚠️ No subject key found for record:', doc.id);
+        return;
       }
       
-      const key = isHomeroom ? 'homeroom' : subject.toLowerCase().replace(/\s+/g, '-');
-      attendanceData[sectionId][key] = {
+      // ✅ CRITICAL FIX: Include the actual student data
+      let students = [];
+      
+      if (Array.isArray(data.students)) {
+        students = data.students;
+      } else if (data.students && typeof data.students === 'object') {
+        // Convert object to array
+        students = Object.values(data.students);
+      } else if (data.studentData) {
+        // Handle legacy field
+        students = Array.isArray(data.studentData) ? data.studentData : Object.values(data.studentData);
+      }
+      
+      console.log(`👥 Found ${students.length} students for ${subjectKey}`);
+      
+      // Store with the COMPLETE data structure your dashboard needs
+      attendanceData[subjectKey] = {
         docId: doc.id,
-        takenBy: data.teacherName,
-        time: data.createdAt?.toDate?.() ? data.createdAt.toDate().toLocaleTimeString() : 
-              data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toLocaleTimeString() : 'Unknown'
+        students: students,  // ✅ CRITICAL: Include student records
+        takenBy: data.takenByName || data.takenBy || data.teacherName || 'Unknown',
+        teacherName: data.takenByName || data.takenBy || data.teacherName || 'Unknown',
+        time: data.timestamp ? new Date(data.timestamp).toLocaleTimeString() :
+              data.createdAt?.toDate?.() ? data.createdAt.toDate().toLocaleTimeString() : 
+              data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toLocaleTimeString() : 
+              'Unknown time',
+        timestamp: data.timestamp || 
+                  (data.createdAt?.toDate?.() ? data.createdAt.toDate().getTime() : Date.now()),
+        sectionId: data.sectionId,
+        sectionName: data.sectionName,
+        subjectName: data.subjectName || data.subject,
+        isHomeroom: data.isHomeroom || false
       };
+      
+      console.log(`✅ Stored attendance for ${subjectKey}:`, {
+        students: students.length,
+        takenBy: attendanceData[subjectKey].takenBy,
+        time: attendanceData[subjectKey].time
+      });
     });
     
+    console.log('📤 Final attendance data keys:', Object.keys(attendanceData));
     return attendanceData;
+    
   } catch (error) {
-    console.error('Error getting today attendance:', error);
+    console.error('❌ Error getting today attendance:', error);
     return {};
   }
 };

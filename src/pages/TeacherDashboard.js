@@ -114,50 +114,147 @@ function TeacherDashboard({ onLogout, currentUser }) {
     }
   };
 
-  const loadTeacherData = async () => {
-    try {
-      setLoading(true);
+  // const loadTeacherData = async () => {
+  //   try {
+  //     setLoading(true);
       
-      await loadSubjectColors();
+  //     await loadSubjectColors();
 
-      const showAllClasses = activeView === 'reports';
-      const result = await getTeacherSections(currentUser, showAllClasses);
-      const teacherSections = result.sections || result || [];
+  //     const showAllClasses = activeView === 'reports';
+  //     const result = await getTeacherSections(currentUser, showAllClasses);
+  //     const teacherSections = result.sections || result || [];
       
-      if (result.scheduleContext) {
-        setScheduleContext(result.scheduleContext);
+  //     if (result.scheduleContext) {
+  //       setScheduleContext(result.scheduleContext);
+  //     }
+      
+  //     const attendanceData = await getTodayAttendance();
+  //     const announcements = await getAdminAnnouncements(); 
+
+  //     const sectionsWithAttendance = teacherSections.map(section => {
+  //       const sectionAttendance = attendanceData[section.sectionId];
+  //       const subjectKey = section.isHomeroom ? 'homeroom' : section.subject?.toLowerCase().replace(/\s+/g, '-');
+  //       const attendance = sectionAttendance?.[subjectKey];
+
+  //       return {
+  //         ...section,
+  //         attendanceTaken: !!attendance,
+  //         attendanceData: attendance,
+  //         presentCount: attendance ? (attendance.students?.filter(s => s.status === 'present').length || 0) : 0,
+  //         lateCount: attendance ? (attendance.students?.filter(s => s.status === 'late').length || 0) : 0,
+  //         absentCount: attendance ? (attendance.students?.filter(s => s.status === 'absent').length || 0) : 0,
+  //         excusedCount: attendance ? (attendance.students?.filter(s => s.status === 'excused').length || 0) : 0,
+  //         enrolledCount: section.studentCount || section.sectionData?.currentEnrollment || 0,
+  //         totalStudents: section.studentCount || section.sectionData?.currentEnrollment || 0
+  //       };
+  //     });
+      
+  //     setSections(sectionsWithAttendance);
+  //     checkNotifications(sectionsWithAttendance, announcements);
+
+  //   } catch (error) {
+  //     console.error('Error loading teacher data:', error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+ const loadTeacherData = async () => {
+  try {
+    setLoading(true);
+    
+    await loadSubjectColors();
+
+    const showAllClasses = activeView === 'reports';
+    const result = await getTeacherSections(currentUser, showAllClasses);
+    const teacherSections = result.sections || result || [];
+    
+    if (result.scheduleContext) {
+      setScheduleContext(result.scheduleContext);
+    }
+    
+    const attendanceData = await getTodayAttendance();
+    const announcements = await getAdminAnnouncements(); 
+
+    console.group('🔍 TEACHER DASHBOARD DEBUG');
+    console.log('Raw sections:', teacherSections);
+    console.log('Raw attendance data:', attendanceData);
+    console.groupEnd();
+
+    const sectionsWithAttendance = teacherSections.map(section => {
+      // ✅ FIXED: Direct subject key matching (no more nested structure)
+      const subjectKey = section.isHomeroom ? 'Homeroom' : (section.subject || section.subjectName);
+      const attendance = attendanceData[subjectKey];  // Direct access, no more sectionId nesting
+      
+      console.log(`🔍 Processing section: ${subjectKey}`, { section, attendance });
+      
+      // ✅ FIXED: Enhanced stats calculation
+      let stats = {
+        presentCount: 0,
+        absentCount: 0,
+        lateCount: 0,
+        excusedCount: 0,
+        enrolledCount: section.studentCount || section.sectionData?.currentEnrollment || 0,
+        totalStudents: section.studentCount || section.sectionData?.currentEnrollment || 0,
+        attendanceTaken: false
+      };
+
+      if (attendance && attendance.students) {
+        stats.attendanceTaken = true;
+        
+        const studentRecords = attendance.students;
+        console.log(`📊 Student records for ${subjectKey}:`, studentRecords.length, studentRecords);
+
+        // Count each status
+        studentRecords.forEach(student => {
+          if (student && student.status) {
+            const status = student.status.toLowerCase();
+            switch (status) {
+              case 'present':
+                stats.presentCount++;
+                break;
+              case 'absent':
+                stats.absentCount++;
+                break;
+              case 'late':
+                stats.lateCount++;
+                break;
+              case 'excused':
+                stats.excusedCount++;
+                break;
+              default:
+                console.warn(`Unknown status: ${status} for student:`, student);
+            }
+          }
+        });
+
+        // ✅ Update total if we have actual attendance data
+        const actualTotal = stats.presentCount + stats.absentCount + stats.lateCount + stats.excusedCount;
+        if (actualTotal > 0) {
+          stats.totalStudents = actualTotal;
+        }
+
+        console.log(`📈 Final stats for ${subjectKey}:`, stats);
+      } else {
+        console.log(`⚠️ No attendance data found for ${subjectKey}`);
       }
       
-      const attendanceData = await getTodayAttendance();
-      const announcements = await getAdminAnnouncements(); 
+      return {
+        ...section,
+        ...stats,
+        attendanceData: attendance
+      };
+    });
+    
+    setSections(sectionsWithAttendance);
+    checkNotifications(sectionsWithAttendance, announcements);
 
-      const sectionsWithAttendance = teacherSections.map(section => {
-        const sectionAttendance = attendanceData[section.sectionId];
-        const subjectKey = section.isHomeroom ? 'homeroom' : section.subject?.toLowerCase().replace(/\s+/g, '-');
-        const attendance = sectionAttendance?.[subjectKey];
-
-        return {
-          ...section,
-          attendanceTaken: !!attendance,
-          attendanceData: attendance,
-          presentCount: attendance ? (attendance.students?.filter(s => s.status === 'present').length || 0) : 0,
-          lateCount: attendance ? (attendance.students?.filter(s => s.status === 'late').length || 0) : 0,
-          absentCount: attendance ? (attendance.students?.filter(s => s.status === 'absent').length || 0) : 0,
-          excusedCount: attendance ? (attendance.students?.filter(s => s.status === 'excused').length || 0) : 0,
-          enrolledCount: section.studentCount || section.sectionData?.currentEnrollment || 0,
-          totalStudents: section.studentCount || section.sectionData?.currentEnrollment || 0
-        };
-      });
-      
-      setSections(sectionsWithAttendance);
-      checkNotifications(sectionsWithAttendance, announcements);
-
-    } catch (error) {
-      console.error('Error loading teacher data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error('Error loading teacher data:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const checkNotifications = (sectionsList, announcements = []) => {
     const alerts = [];
