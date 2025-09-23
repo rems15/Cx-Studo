@@ -1,67 +1,15 @@
-// src/services/teacherService.js - ENHANCED with Schedule Integration
-
+// src/services/teacherService.js - FIXED VERSION WITH REAL-TIME SUBJECT LOOKUP
 import { 
   collection, 
   query, 
   where, 
   onSnapshot, 
-  getDocs 
+  getDocs,
+  orderBy
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { StudentFilteringService } from './studentFilteringService';
-import { ScheduleService } from './scheduleService'; // NEW IMPORT
+import { ScheduleService } from './scheduleService';
 
-/**
- * ✅ ENHANCED: Teacher service with schedule-aware filtering
- * STRATEGY: Minimal changes to existing code, add schedule logic at the end
- */
-
-// Keep all existing helper functions unchanged
-const getTeacherProfile = async (currentUser) => {
-  // [Existing code unchanged]
-  try {
-
-
-    const lookupMethods = [
-      async () => {
-        const teacherQuery = query(collection(db, 'users'), where('email', '==', currentUser.email));
-        const snapshot = await getDocs(teacherQuery);
-        return snapshot.empty ? null : { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-      },
-      async () => {
-        const allUsersSnapshot = await getDocs(collection(db, 'users'));
-        let foundTeacher = null;
-        
-        allUsersSnapshot.forEach(doc => {
-          const userData = doc.data();
-          if (userData.email?.toLowerCase() === currentUser.email.toLowerCase()) {
-            foundTeacher = { id: doc.id, ...userData };
-          }
-        });
-        
-        return foundTeacher;
-      }
-    ];
-
-    for (const method of lookupMethods) {
-      try {
-        const teacherData = await method();
-        if (teacherData) {
-          return teacherData;
-        }
-      } catch (error) {
-        console.warn('Lookup method failed:', error);
-      }
-    }
-
-    throw new Error('Teacher profile not found in database');
-  } catch (error) {
-    console.error('Error getting teacher profile:', error);
-    return null;
-  }
-};
-
-// Keep existing helper functions unchanged
 const getSubjectRooms = async () => {
   try {
     const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
@@ -76,8 +24,35 @@ const getSubjectRooms = async () => {
     
     return subjectRooms;
   } catch (error) {
-    console.error('Error getting subject rooms:', error);
+    console.error('Error loading subject rooms:', error);
     return {};
+  }
+};
+
+// UNIVERSAL FIX: Get teacher subjects from database in real-time
+const getTeacherSubjectsFromDatabase = async (teacherId) => {
+  try {
+    console.log('🔍 Getting real-time subject assignments for teacher:', teacherId);
+    
+    const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
+    const teacherSubjects = [];
+    
+    subjectsSnapshot.forEach(doc => {
+      const subjectData = doc.data();
+      const assignedTeachers = subjectData.assignedTeachers || [];
+      
+      if (assignedTeachers.includes(teacherId) && subjectData.name) {
+        teacherSubjects.push(subjectData.name);
+        console.log(`✅ Teacher assigned to: ${subjectData.name}`);
+      }
+    });
+    
+    console.log(`📚 Real-time subjects found: ${teacherSubjects.length}`);
+    return teacherSubjects;
+    
+  } catch (error) {
+    console.error('Error getting teacher subjects from database:', error);
+    return [];
   }
 };
 
@@ -87,21 +62,27 @@ const generateRoomNumber = (sectionData, subject, subjectRooms = {}) => {
   }
   
   if (subject === 'Homeroom') {
-    const gradeLevel = sectionData.gradeLevel || 7;
-    const sectionLetter = (sectionData.sectionName || sectionData.section || 'A').charAt(0);
-    return `${gradeLevel}${sectionLetter}1`;
+    const year = sectionData?.year || sectionData?.gradeLevel || 7;
+    const sectionLetter = (sectionData?.section || sectionData?.sectionName || 'A').charAt(0);
+    return `${year}${sectionLetter}1`;
   }
   
   return 'TBD';
 };
 
-/**
- * ✅ ENHANCED: Main function with schedule integration
- */
-export const getTeacherSections = async (currentUser) => {
+export const getTeacherSections = async (currentUser, showAllClasses = false) => {
   try {
+    console.log('🔍 Getting teacher sections for:', currentUser.email);
+    console.log('📊 Show all classes mode:', showAllClasses);
+
+    const currentWeek = ScheduleService.getCurrentWeek();
+    const currentDay = ScheduleService.getCurrentDay();
     
-    // STEP 1: Get teacher data (unchanged)
+    console.log('📅 Current schedule:', currentWeek, currentDay);
+
+    const subjectRooms = await getSubjectRooms();
+
+    // STEP 1: Get teacher data
     let teacherData = null;
 
     try {
@@ -112,6 +93,7 @@ export const getTeacherSections = async (currentUser) => {
         });
       }
     } catch (error) {
+      console.error('Error getting teacher by email:', error);
     }
 
     if (!teacherData && currentUser.uid) {
@@ -123,62 +105,49 @@ export const getTeacherSections = async (currentUser) => {
           });
         }
       } catch (error) {
+        console.error('Error getting teacher by UID:', error);
       }
     }
 
     if (!teacherData) {
-      try {
-        const allUsersSnapshot = await getDocs(collection(db, 'users'));
-        allUsersSnapshot.forEach(doc => {
-          const userData = doc.data();
-          if (userData.email === currentUser.email || userData.uid === currentUser.uid) {
-            teacherData = { id: doc.id, ...userData };
-          }
-        });
-      } catch (error) {
-      }
+      console.error('❌ Teacher data not found');
+      return { sections: [], scheduleContext: null };
     }
 
-    if (!teacherData) {
-      return [];
-    }
+    console.log('👨‍🏫 Teacher data found:', teacherData.name || teacherData.email);
 
-    // STEP 2: Get subject rooms (unchanged)
-    const subjectRooms = await getSubjectRooms();
-
-    // ✅ NEW: Get schedule context
-    const currentWeek = ScheduleService.getCurrentWeek();
-    const currentDay = ScheduleService.getCurrentDay();
-
-    // STEP 3: Process sections (mostly unchanged)
-    const sectionsSnapshot = await getDocs(collection(db, 'sections'));
+    // 🔥 FIXED: Get real-time subjects instead of cached ones
     const teacherRoles = teacherData.roles || [];
-    const teacherSubjects = teacherData.subjects || [];
+    const teacherSubjects = await getTeacherSubjectsFromDatabase(teacherData.id);
     const assignedSectionIds = teacherData.sections || [];
     const isHomeroomTeacher = teacherRoles.includes('homeroom');
-    const homeroomClass = teacherData.homeroomClass;
-
     const tempSectionData = [];
 
-    for (const doc of sectionsSnapshot.docs) {
+    console.log('📚 Using real-time subjects:', teacherSubjects);
+
+    // STEP 2: Get all sections and process assignments
+    const sectionsSnapshot = await getDocs(collection(db, 'sections'));
+
+    sectionsSnapshot.forEach(doc => {
       const sectionData = { id: doc.id, ...doc.data() };
       let isAssigned = false;
       let assignedSubjects = [];
       let isHomeroomSection = false;
 
-      // Check homeroom assignment (unchanged)
-      if (isHomeroomTeacher && homeroomClass) {
-        const sectionIdentifier = `${sectionData.gradeLevel}-${sectionData.sectionName || sectionData.section}`;
-        const homeroomIdentifier = homeroomClass;
+      // Check homeroom assignment
+      if (isHomeroomTeacher && teacherData.homeroomClass) {
+        const sectionIdentifier = `${sectionData.year || sectionData.gradeLevel}-${sectionData.section || sectionData.sectionName}`;
         
-        if (homeroomIdentifier === sectionIdentifier) {
+        if (teacherData.homeroomClass === sectionIdentifier || teacherData.homeroomClass === doc.id) {
           isAssigned = true;
-          assignedSubjects.push('Homeroom');
           isHomeroomSection = true;
+          if (!assignedSubjects.includes('Homeroom')) {
+            assignedSubjects.push('Homeroom');
+          }
         }
       }
 
-      // Check section assignments (unchanged)
+      // Check section assignments - NOW USES REAL-TIME SUBJECTS
       if (assignedSectionIds.includes(doc.id)) {
         isAssigned = true;
         if (teacherSubjects && teacherSubjects.length > 0) {
@@ -201,37 +170,39 @@ export const getTeacherSections = async (currentUser) => {
         }
       }
 
-      // Get students (unchanged)
+      // Store section info if assigned
       if (isAssigned && assignedSubjects.length > 0) {
-        let allSectionStudents = [];
-        try {
-          const studentsQuery = query(collection(db, 'students'), where('sectionId', '==', doc.id));
-          const studentsSnapshot = await getDocs(studentsQuery);
-          studentsSnapshot.forEach(studentDoc => {
-            allSectionStudents.push({
-              id: studentDoc.id,
-              ...studentDoc.data()
-            });
-          });
-        } catch (error) {
-          console.error('Error fetching students:', error);
-        }
-
         tempSectionData.push({
           sectionId: doc.id,
           sectionData: sectionData,
-          sectionIdentifier: `${sectionData.gradeLevel}-${sectionData.sectionName || sectionData.section}`,
-          allStudents: allSectionStudents,
+          sectionIdentifier: `${sectionData.year || sectionData.gradeLevel}-${sectionData.section || sectionData.sectionName}`,
+          allStudents: [],
           isHomeroomSection: isHomeroomSection,
           assignedSubjects: assignedSubjects
         });
       }
-    }
+    });
 
-    // STEP 4: Subject grouping (mostly unchanged)
+    // Second pass: get students for assigned sections
+    const studentPromises = tempSectionData.map(async (sectionInfo) => {
+      const studentsQuery = query(collection(db, 'students'), where('sectionId', '==', sectionInfo.sectionId));
+      const studentsSnapshot = await getDocs(studentsQuery);
+      const students = [];
+      studentsSnapshot.forEach(studentDoc => {
+        students.push({
+          id: studentDoc.id,
+          ...studentDoc.data()
+        });
+      });
+      return { ...sectionInfo, allStudents: students };
+    });
+
+    const completeSectionData = await Promise.all(studentPromises);
+
+    // STEP 3: Subject grouping
     const subjectGroups = {};
 
-    tempSectionData.forEach(sectionInfo => {
+    completeSectionData.forEach(sectionInfo => {
       const { assignedSubjects, allStudents, sectionData, sectionId, isHomeroomSection } = sectionInfo;
       
       assignedSubjects.forEach(subject => {
@@ -246,7 +217,7 @@ export const getTeacherSections = async (currentUser) => {
           };
         }
         
-        // Student filtering (unchanged)
+        // Student filtering
         let studentsForThisSubject = [];
         
         if (subject === 'Homeroom') {
@@ -276,13 +247,13 @@ export const getTeacherSections = async (currentUser) => {
         }
         
         if (studentsForThisSubject.length > 0) {
-          const formattedSectionName = `Grade ${sectionData.gradeLevel} - ${(sectionData.sectionName || sectionData.section || '').toUpperCase()}`;
+          const formattedSectionName = `Grade ${sectionData.year || sectionData.gradeLevel} - ${(sectionData.section || sectionData.sectionName || '').toUpperCase()}`;
           
           subjectGroups[subject].sectionsWithStudents.push({
             sectionId: sectionId,
             sectionData: sectionData,
             sectionName: formattedSectionName,
-            gradeLevel: sectionData.gradeLevel,
+            year: sectionData.year || sectionData.gradeLevel,
             studentCount: studentsForThisSubject.length
           });
           
@@ -291,13 +262,14 @@ export const getTeacherSections = async (currentUser) => {
             if (!exists) {
               subjectGroups[subject].allEnrolledStudents.push({
                 ...student,
-                sectionName: sectionData.sectionName || sectionData.section || 'N/A',
-                gradeLevel: sectionData.gradeLevel || 'N/A',
+                sectionName: sectionData.section || sectionData.sectionName || 'N/A',
+                year: sectionData.year || sectionData.gradeLevel || 'N/A',
+                gradeLevel: sectionData.year || sectionData.gradeLevel || 'N/A',
                 fromSection: formattedSectionName,
                 fromSectionId: sectionId,
                 displaySectionName: formattedSectionName,
-                displayGradeLevel: sectionData.gradeLevel,
-                displaySection: (sectionData.sectionName || sectionData.section || '').toUpperCase()
+                displayYear: sectionData.year || sectionData.gradeLevel,
+                displaySection: (sectionData.section || sectionData.sectionName || '').toUpperCase()
               });
             }
           });
@@ -305,48 +277,92 @@ export const getTeacherSections = async (currentUser) => {
       });
     });
 
-    // ✅ NEW: Apply schedule filtering to subject groups
-    
+    // STEP 4: Schedule filtering
     const filteredSubjectGroups = {};
-    
+    const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
+    const allSubjects = [];
+    subjectsSnapshot.forEach(doc => {
+      allSubjects.push({ id: doc.id, ...doc.data() });
+    });
+
+    let totalSubjectsFiltered = 0;
+    let totalScheduledToday = 0;
+
     for (const [subjectName, group] of Object.entries(subjectGroups)) {
-      // Always include homeroom sections
       if (group.isHomeroom) {
         filteredSubjectGroups[subjectName] = group;
+        totalScheduledToday++;
         continue;
       }
       
-      // For subject classes, check if scheduled today
-      const isScheduledToday = await ScheduleService.isSubjectScheduledToday(subjectName);
+      const subjectData = allSubjects.find(s => 
+        s.name && s.name.toLowerCase() === subjectName.toLowerCase()
+      );
       
-      if (isScheduledToday) {
-        // Get schedule info for today
-        const todaySchedule = await ScheduleService.getSubjectScheduleToday(subjectName);
-        const scheduleDisplay = ScheduleService.formatScheduleDisplay(todaySchedule);
+      let isScheduledToday = false;
+      let todaySchedule = [];
+      
+      if (subjectData && subjectData.schedule) {
+        const weekSchedule = subjectData.schedule[currentWeek];
+        if (weekSchedule) {
+          const scheduleSlots = Array.isArray(weekSchedule) ? weekSchedule : [weekSchedule];
+          
+          todaySchedule = scheduleSlots.filter(slot => 
+            slot.day && slot.day.toLowerCase() === currentDay.toLowerCase()
+          );
+          
+          isScheduledToday = todaySchedule.length > 0;
+        }
+      }
+
+      if (showAllClasses) {
+        group.isScheduledToday = isScheduledToday;
         
-        // Add schedule info to the group
-        group.isScheduledToday = true;
-        group.todaySchedule = todaySchedule;
-        group.scheduleDisplay = scheduleDisplay;
+        if (isScheduledToday) {
+          const scheduleDisplay = ScheduleService.formatScheduleDisplay(todaySchedule);
+          group.todaySchedule = todaySchedule;
+          group.scheduleDisplay = scheduleDisplay;
+          totalScheduledToday++;
+        } else {
+          group.scheduleDisplay = 'Not scheduled today';
+        }
         
         filteredSubjectGroups[subjectName] = group;
+      } else {
+        if (isScheduledToday) {
+          const scheduleDisplay = ScheduleService.formatScheduleDisplay(todaySchedule);
+          
+          group.isScheduledToday = true;
+          group.todaySchedule = todaySchedule;
+          group.scheduleDisplay = scheduleDisplay;
+          
+          filteredSubjectGroups[subjectName] = group;
+          totalScheduledToday++;
+        } else {
+          totalSubjectsFiltered++;
+        }
       }
     }
 
-    // STEP 5: Convert to final format (enhanced with schedule info)
+    // STEP 5: Create final sections array
     const sectionsData = [];
 
     Object.values(filteredSubjectGroups).forEach(group => {
       group.totalCount = group.allEnrolledStudents.length;
       
-      if (group.totalCount > 0) {
+      const shouldInclude = group.totalCount > 0 || (showAllClasses && !group.isHomeroom);
+      
+      if (shouldInclude) {
         const firstSection = group.sectionsWithStudents[0];
         const roomNumber = generateRoomNumber(firstSection?.sectionData, group.subject, subjectRooms);
         
+        const hasStudents = group.totalCount > 0;
+        const defaultSectionId = `virtual-${group.subject.toLowerCase().replace(/\s+/g, '-')}`;
+        
         const formattedSection = {
-          sectionId: firstSection?.sectionId || `multi-${group.subject.toLowerCase().replace(/\s+/g, '-')}`,
+          sectionId: firstSection?.sectionId || defaultSectionId,
           title: group.isHomeroom 
-            ? firstSection?.sectionName || 'Homeroom'
+            ? (firstSection?.sectionName || 'Homeroom')
             : group.subject,
           subject: group.subject,
           isHomeroom: group.isHomeroom,
@@ -356,59 +372,71 @@ export const getTeacherSections = async (currentUser) => {
           students: group.allEnrolledStudents.map(s => s.id),
           studentsData: group.allEnrolledStudents,
           studentCount: group.totalCount,
-          sectionData: firstSection?.sectionData || {},
+          sectionData: firstSection?.sectionData || {
+            year: 'Mixed',
+            section: 'Multiple',
+            gradeLevel: 'Mixed',
+            sectionName: 'Multiple'
+          },
           assignedSubjects: [group.subject],
           
-          // Enhanced fields for compatibility
           name: group.isHomeroom 
-            ? firstSection?.sectionName || 'Homeroom'
+            ? (firstSection?.sectionName || 'Homeroom')
             : group.subject,
           actualSectionIds: group.sectionsWithStudents.map(s => s.sectionId),
-          gradeLevel: firstSection?.gradeLevel,
+          year: firstSection?.sectionData?.year || firstSection?.sectionData?.gradeLevel || 'Mixed',
+          gradeLevel: firstSection?.sectionData?.year || firstSection?.sectionData?.gradeLevel || 'Mixed',
           roomNumber: roomNumber,
           
-          // ✅ NEW: Schedule information
-          isScheduledToday: group.isScheduledToday || false,
+          isScheduledToday: group.isScheduledToday !== false,
           todaySchedule: group.todaySchedule || [],
           scheduleDisplay: group.scheduleDisplay || '',
           currentWeek: currentWeek,
-          currentDay: currentDay
+          currentDay: currentDay,
+          
+          isEmpty: !hasStudents,
+          isVirtualSection: !hasStudents && showAllClasses
         };
 
         sectionsData.push(formattedSection);
-      }
-    });
-
-    sectionsData.forEach(section => {
-      if (section.isHomeroom) {
-        console.log(`🏠 ${section.subject}: ${section.studentCount} students`);
+        
+        if (!hasStudents) {
+          console.log(`📝 Including empty subject: ${group.subject} (showAllClasses enabled)`);
+        }
       } else {
-        console.log(`📚 ${section.subject}: ${section.studentCount} students (${section.scheduleDisplay || 'No schedule'})`);
+        console.log(`❌ Excluding ${group.subject}: ${group.totalCount} students, showAllClasses: ${showAllClasses}`);
       }
     });
 
-    // ✅ NEW: Add schedule context to result
     const result = {
       sections: sectionsData,
       scheduleContext: {
         currentWeek: currentWeek,
         currentDay: currentDay,
         weekDisplay: ScheduleService.getWeekDisplayText(),
-        totalSubjectsFiltered: Object.keys(subjectGroups).length - sectionsData.filter(s => !s.isHomeroom).length
+        totalSubjectsFiltered: showAllClasses ? 0 : totalSubjectsFiltered,
+        showingAllClasses: showAllClasses,
+        totalSubjectsAvailable: Object.keys(subjectGroups).length,
+        emptySubjectsShown: showAllClasses ? sectionsData.filter(s => s.isEmpty).length : 0,
+        totalScheduledToday: totalScheduledToday,
+        hasScheduledClasses: totalScheduledToday > 0
       }
     };
+
+    console.log('✅ DEBUG: Final result:', result);
+    console.log(`📊 Showing ${sectionsData.length} sections total`);
+    console.log(`🗓️ Subjects scheduled today: ${totalScheduledToday}`);
+    console.log(`📋 Subjects filtered out: ${totalSubjectsFiltered}`);
 
     return result;
 
   } catch (error) {
-    console.error('Error in enhanced getTeacherSections:', error);
+    console.error('❌ Error in enhanced getTeacherSections:', error);
     return { sections: [], scheduleContext: null };
   }
 };
 
-// Keep other existing functions unchanged
 export const getTodayAttendance = async () => {
-  // [Existing code unchanged]
   try {
     const today = new Date().toISOString().split('T')[0];
     
@@ -435,35 +463,22 @@ export const getTodayAttendance = async () => {
         docId: doc.id,
         takenBy: data.teacherName,
         time: data.createdAt?.toDate?.() ? data.createdAt.toDate().toLocaleTimeString() : 
-              data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toLocaleTimeString() : 'Unknown',
-        students: data.students || [],
-        presentCount: (data.students || []).filter(s => s.status === 'present').length,
-        lateCount: (data.students || []).filter(s => s.status === 'late').length,
-        absentCount: (data.students || []).filter(s => s.status === 'absent').length,
-        excusedCount: (data.students || []).filter(s => s.status === 'excused').length,
-        totalStudents: (data.students || []).length,
-        timestamp: data.updatedAt || data.createdAt
+              data.updatedAt?.toDate?.() ? data.updatedAt.toDate().toLocaleTimeString() : 'Unknown'
       };
     });
-
+    
     return attendanceData;
-
   } catch (error) {
-    console.error('Error getting attendance data:', error);
+    console.error('Error getting today attendance:', error);
     return {};
   }
 };
 
 export const getAdminAnnouncements = async () => {
-  // [Existing code unchanged]
   try {
-    const today = new Date().toISOString().split('T')[0];
     const announcementsQuery = query(
       collection(db, 'announcements'),
-      where('targetAudience', 'in', ['all', 'teachers']),
-      where('isActive', '==', true),
-      where('startDate', '<=', today),
-      where('endDate', '>=', today)
+      orderBy('createdAt', 'desc')
     );
     
     const snapshot = await getDocs(announcementsQuery);
@@ -472,11 +487,9 @@ export const getAdminAnnouncements = async () => {
     snapshot.forEach(doc => {
       const data = doc.data();
       announcements.push({
-        type: data.priority === 'high' ? 'warning' : 'info',
-        message: data.message,
-        icon: data.priority === 'high' ? 'bi-exclamation-triangle' : 'bi-info-circle',
-        priority: data.priority || 'medium',
-        createdAt: data.createdAt
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.() || new Date()
       });
     });
     
@@ -488,88 +501,21 @@ export const getAdminAnnouncements = async () => {
 };
 
 export const setupTeacherListeners = (currentUser, callback) => {
-  // [Existing code unchanged but needs to handle new return format]
   try {
-    const unsubscribers = [];
-    let isRefreshing = false;
-
-    let refreshTimeout;
-    const refreshData = async () => {
-      if (isRefreshing) return;
-      
-      clearTimeout(refreshTimeout);
-      refreshTimeout = setTimeout(async () => {
-        try {
-          isRefreshing = true;
-          
-          const result = await getTeacherSections(currentUser);
-          const sections = result.sections || [];
-          const attendanceData = await getTodayAttendance();
-          
-          const sectionsWithAttendance = sections.map(section => {
-            const sectionAttendance = attendanceData[section.sectionId];
-            const subjectKey = section.isHomeroom ? 'homeroom' : section.subject.toLowerCase().replace(/\s+/g, '-');
-            const attendance = sectionAttendance?.[subjectKey];
-            
-            const students = attendance?.students || [];
-            
-            return {
-              ...section,
-              attendanceTaken: !!attendance,
-              attendanceData: attendance,
-              presentCount: students.filter(s => s.status === 'present').length,
-              lateCount: students.filter(s => s.status === 'late').length,
-              absentCount: students.filter(s => s.status === 'absent').length,
-              excusedCount: students.filter(s => s.status === 'excused').length,
-              enrolledCount: section.studentCount || 0,
-              totalStudents: section.studentCount || 0,
-              attendanceTime: attendance?.time,
-              attendanceTakenBy: attendance?.takenBy
-            };
-          });
-          
-          
-          // ✅ NEW: Pass schedule context to callback
-          callback({
-            sections: sectionsWithAttendance,
-            scheduleContext: result.scheduleContext
-          });
-          
-        } catch (error) {
-          console.error('Error refreshing data:', error);
-          callback({ sections: [], scheduleContext: null });
-        } finally {
-          isRefreshing = false;
-        }
-      }, 1000);
-    };
-
-    // Set up listeners
-    const sectionsListener = onSnapshot(collection(db, 'sections'), refreshData);
-    unsubscribers.push(sectionsListener);
-
-    const today = new Date().toISOString().split('T')[0];
-    const attendanceListener = onSnapshot(
-      query(collection(db, 'attendance'), where('date', '==', today)),
-      refreshData
+    const unsubscribe = onSnapshot(
+      collection(db, 'sections'),
+      (snapshot) => {
+        console.log('📡 Sections updated, refreshing teacher data...');
+        getTeacherSections(currentUser).then(result => {
+          if (callback) callback(result);
+        });
+      },
+      (error) => {
+        console.error('Error in sections listener:', error);
+      }
     );
-    unsubscribers.push(attendanceListener);
-
-    const studentsListener = onSnapshot(collection(db, 'students'), refreshData);
-    unsubscribers.push(studentsListener);
-
-    // Initial data load
-    refreshData();
-
-    return () => {
-      clearTimeout(refreshTimeout);
-      unsubscribers.forEach(unsubscriber => {
-        if (typeof unsubscriber === 'function') {
-          unsubscriber();
-        }
-      });
-    };
-
+    
+    return unsubscribe;
   } catch (error) {
     console.error('Error setting up teacher listeners:', error);
     return () => {};

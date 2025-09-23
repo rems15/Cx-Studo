@@ -279,29 +279,22 @@ static async loadAttendanceData(section, currentUser, isFirebaseVersion = true) 
             status: record.status,
             notes: record.notes || '',
             
-            // ✅ BEHAVIOR FLAGS - Multiple field names for compatibility
+            // Existing behavior flags
             hasBehaviorIssue: record.hasBehaviorIssue || false,
             hasFlag: record.hasBehaviorIssue || false,
             behaviorFlag: record.hasBehaviorIssue || false,
-            flagged: record.hasBehaviorIssue || false,
             
-            // Student metadata
-            gradeLevel: student?.gradeLevel,
+            // ✅ NEW: Merit flags (same pattern as behavior)
+            hasMerit: record.hasMerit || false,
+            merit: record.hasMerit || false,
+            meritFlag: record.hasMerit || false,
+            
+            // Existing metadata
+            year: student?.year,
             section: student?.section || student?.sectionName,
-            
-            // Tracking metadata
             recordedAt: new Date().toISOString(),
             recordedBy: currentUser?.name || currentUser?.email
-          };
-
-          // Debug logging for behavior flags
-          if (record.hasBehaviorIssue) {
-            console.log(`🚩 SAVING BEHAVIOR FLAG for: ${studentRecord.studentName}`);
-            console.log(`   hasBehaviorIssue: ${studentRecord.hasBehaviorIssue}`);
-            console.log(`   hasFlag: ${studentRecord.hasFlag}`);
-            console.log(`   behaviorFlag: ${studentRecord.behaviorFlag}`);
-            console.log(`   flagged: ${studentRecord.flagged}`);
-          }
+        };
 
           return studentRecord;
         }),

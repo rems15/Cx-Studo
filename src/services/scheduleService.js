@@ -1,33 +1,46 @@
-// src/services/scheduleService.js - SIMPLIFIED APPROACH
+// src/services/scheduleService.js - FIXED VERSION
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
 /**
- * SIMPLE Schedule Service - Focus on core functionality first
+ * FIXED Schedule Service - Proper week and day detection
  */
 export class ScheduleService {
   
   /**
-   * STEP 1: Basic week detection (simplified for testing)
+   * FIXED: Proper week detection that matches Firebase structure
    */
   static getCurrentWeek() {
-    // For now, let's use a simple approach for testing
-    // Later we can make this more sophisticated
-    
     const today = new Date();
-    const weekNumber = Math.floor(today.getDate() / 7); // Simple calculation for testing
-    const currentWeek = (weekNumber % 2) + 1; // Alternates between 1 and 2
     
+    // FIXED: Use proper school calendar calculation
+    const schoolStartDate = new Date('2024-09-02'); // Update this to your actual school start date
+    
+    const timeDiff = today.getTime() - schoolStartDate.getTime();
+    const daysDiff = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+    const weeksSinceStart = Math.floor(daysDiff / 7);
+    
+    // FIXED: Return proper string format that matches Firebase
+    const currentWeek = weeksSinceStart % 2 === 0 ? 'week1' : 'week2';
+    
+    console.log(`📊 Schedule Debug - Current Week: ${currentWeek}`);
+    console.log(`📊 Days since school start: ${daysDiff}, Weeks: ${weeksSinceStart}`);
     
     return currentWeek;
   }
   
   /**
-   * STEP 2: Get current day name
+   * FIXED: Enhanced day detection with debugging
    */
   static getCurrentDay() {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    return days[new Date().getDay()];
+    const today = new Date();
+    const currentDay = days[today.getDay()];
+    
+    console.log(`📅 Schedule Debug - Current Day: ${currentDay} (index: ${today.getDay()})`);
+    console.log(`📅 Full date: ${today.toDateString()}`);
+    
+    return currentDay;
   }
   
   /**
@@ -39,14 +52,14 @@ export class ScheduleService {
       const currentWeek = this.getCurrentWeek();
       const currentDay = this.getCurrentDay();
       
-
+      console.log(`🔍 Filtering subjects for: ${currentWeek}, ${currentDay}`);
       
       const scheduledSubjects = [];
       
       for (const subject of allSubjects) {
         // Check if subject has schedule data
-        if (subject.schedule && subject.schedule[`week${currentWeek}`]) {
-          const weekSchedule = subject.schedule[`week${currentWeek}`];
+        if (subject.schedule && subject.schedule[currentWeek]) {
+          const weekSchedule = subject.schedule[currentWeek];
           
           // Find today's schedule
           const todaySlots = weekSchedule.filter(slot => slot.day === currentDay);
@@ -61,13 +74,13 @@ export class ScheduleService {
             };
             
             scheduledSubjects.push(enhancedSubject);
-
+            console.log(`✅ ${subject.name} scheduled for today`);
           } else {
- 
+            console.log(`❌ ${subject.name} NOT scheduled for ${currentDay}`);
           }
         } else {
           // Subject has no schedule data - include it anyway (backward compatibility)
-
+          console.log(`⚠️ ${subject.name} has no schedule data`);
           scheduledSubjects.push({
             ...subject,
             isScheduledToday: false,
@@ -83,11 +96,11 @@ export class ScheduleService {
         return aPeriod - bPeriod;
       });
       
-    
+      console.log(`🎯 Final scheduled subjects for today:`, scheduledSubjects.map(s => s.name));
       return scheduledSubjects;
       
     } catch (error) {
-
+      console.error('Error filtering subjects:', error);
       return allSubjects; // Return all subjects if filtering fails
     }
   }
@@ -102,22 +115,23 @@ export class ScheduleService {
   }
   
   /**
-   * STEP 5: Get week display for header
+   * FIXED: Get week display for header
    */
   static getWeekDisplayText() {
     const week = this.getCurrentWeek();
-    return `Week ${week} Schedule`;
+    const weekNumber = week === 'week1' ? '1' : '2';
+    return `Week ${weekNumber}`;
   }
   
   /**
-   * STEP 6: Check if a specific subject is scheduled for today
+   * FIXED: Check if a specific subject is scheduled for today
    */
   static async isSubjectScheduledToday(subjectName) {
     try {
       const currentWeek = this.getCurrentWeek();
       const currentDay = this.getCurrentDay();
       
-
+      console.log(`🔍 Checking ${subjectName} for ${currentWeek} ${currentDay}`);
       
       // Get subject from database
       const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
@@ -131,23 +145,28 @@ export class ScheduleService {
       });
       
       if (!subject) {
-  
+        console.log(`❌ Subject "${subjectName}" not found in database`);
         return false;
       }
       
       if (!subject.schedule) {
- 
+        console.log(`❌ Subject "${subjectName}" has no schedule data`);
         return false;
       }
       
-      const weekSchedule = subject.schedule[`week${currentWeek}`];
+      const weekSchedule = subject.schedule[currentWeek];
       if (!weekSchedule) {
-
+        console.log(`❌ Subject "${subjectName}" has no schedule for ${currentWeek}`);
         return false;
       }
       
       const isScheduled = weekSchedule.some(slot => slot.day === currentDay);
-
+      
+      if (isScheduled) {
+        console.log(`✅ ${subjectName} IS scheduled for ${currentDay}`);
+      } else {
+        console.log(`❌ ${subjectName} is NOT scheduled for ${currentDay}`);
+      }
       
       return isScheduled;
       
@@ -179,7 +198,7 @@ export class ScheduleService {
         return [];
       }
       
-      const weekSchedule = subject.schedule[`week${currentWeek}`];
+      const weekSchedule = subject.schedule[currentWeek];
       if (!weekSchedule) {
         return [];
       }
@@ -193,7 +212,22 @@ export class ScheduleService {
   }
 
   /**
-   * TESTING HELPER: Log current state
+   * TESTING HELPER: Debug current schedule state
    */
-
+  static debugCurrentSchedule() {
+    console.group('🔍 SCHEDULE DEBUG');
+    
+    const today = new Date();
+    const currentWeek = this.getCurrentWeek();
+    const currentDay = this.getCurrentDay();
+    
+    console.log('📅 Today:', today.toDateString());
+    console.log('📊 Detected Week:', currentWeek);
+    console.log('📅 Detected Day:', currentDay);
+    console.log('🎯 Expected: If today is Tuesday, Monday subjects (like MUN) should NOT show');
+    
+    console.groupEnd();
+    
+    return { currentWeek, currentDay };
+  }
 }

@@ -1,265 +1,159 @@
-// src/components/teacher/hooks/useAttendanceState.js - FIXED BEHAVIOR FLAGS
+// src/hooks/useAttendanceState.js - FIXED VERSION
+// ✅ REMOVED homeroom data inheritance for subject teachers
+// Subject teachers should start with BLANK attendance
+
 import { useState, useEffect, useMemo } from 'react';
 
 export const useAttendanceState = (students, homeroomData, filters = {}) => {
-    const [attendanceRecords, setAttendanceRecords] = useState({});
-    const [notes, setNotes] = useState({});
-    const [saving, setSaving] = useState(false);
+  const [attendanceRecords, setAttendanceRecords] = useState({});
+  const [saving, setSaving] = useState(false);
 
-    // Ensure students is always an array
-    const safeStudents = Array.isArray(students) ? students : [];
+  // Ensure students is always an array
+  const safeStudents = Array.isArray(students) ? students : [];
 
-    // Initialize attendance records when students or homeroom data changes
-    useEffect(() => {
-        if (safeStudents.length > 0) {
-            initializeAttendanceRecords();
+  // Initialize attendance records when students change
+  useEffect(() => {
+    if (safeStudents.length > 0) {
+      initializeAttendanceRecords();
+    }
+  }, [safeStudents]); // ✅ REMOVED homeroomData dependency
+
+  // ✅ FIXED: Always start with blank data - no homeroom inheritance
+  const initializeAttendanceRecords = () => {
+   
+    
+    const initialRecords = {};
+    
+    safeStudents.forEach(student => {
+      // ✅ ALWAYS START BLANK - No inheritance from homeroom
+      initialRecords[student.id] = {
+        status: 'present',           // ✅ Default status
+        notes: '',                   // ✅ Blank notes  
+        hasBehaviorIssue: false,     // ✅ No behavior flags
+        hasMerit: false,             // ✅ No merit by default
+        timestamp: new Date().toISOString()
+      };
+    });
+    
+
+    
+    setAttendanceRecords(initialRecords);
+  };
+
+  // Status change handler
+  const handleStatusChange = (studentId, status) => {
+   
+    setAttendanceRecords(prev => ({
+      ...prev,
+      [studentId]: { 
+        ...prev[studentId], 
+        status: status,
+        lastModified: new Date().toISOString()
+      }
+    }));
+  };
+
+  // Notes change handler
+  const handleNotesChange = (studentId, notes) => {
+    setAttendanceRecords(prev => ({
+      ...prev,
+      [studentId]: { 
+        ...prev[studentId], 
+        notes: notes,
+        lastModified: new Date().toISOString()
+      }
+    }));
+  };
+
+  // Behavior flag change handler
+  const handleBehaviorChange = (studentId, hasBehaviorIssue) => {
+    
+    setAttendanceRecords(prev => {
+      const updatedRecords = {
+        ...prev,
+        [studentId]: { 
+          ...prev[studentId], 
+          hasBehaviorIssue: hasBehaviorIssue,
+          lastModified: new Date().toISOString()
         }
-    }, [safeStudents, homeroomData]);
+      };
+      
+      // Debug log the updated record
+      
+      return updatedRecords;
+    });
+  };
 
-    // ✅ ENHANCED: Initialize with behavior flag support
-    const initializeAttendanceRecords = () => {
-        const initialRecords = {};
-        
-        safeStudents.forEach(student => {
-            // Default to homeroom status or 'present'
-            let defaultStatus = 'present';
-            let defaultNotes = '';
-            let defaultBehaviorIssue = false; // ✅ NEW: Initialize behavior flag
-            
-            if (homeroomData && Array.isArray(homeroomData.students)) {
-                const homeroomRecord = homeroomData.students.find(s => 
-                    s.studentName === `${student.firstName} ${student.lastName}` ||
-                    s.studentId === student.id
-                );
-                
-                if (homeroomRecord) {
-                    defaultStatus = homeroomRecord.status || 'present';
-                    defaultNotes = homeroomRecord.notes || '';
-                    
-                    // ✅ NEW: Check multiple behavior flag fields
-                    defaultBehaviorIssue = homeroomRecord.hasBehaviorIssue || 
-                                          homeroomRecord.hasFlag || 
-                                          homeroomRecord.behaviorFlag || 
-                                          homeroomRecord.flagged || 
-                                          false;
-                                          
-                    if (defaultBehaviorIssue) {
-                        console.log(`🚩 Loading behavior flag for: ${student.firstName} ${student.lastName}`);
-                    }
-                }
-            }
-            
-            initialRecords[student.id] = {
-                status: defaultStatus,
-                notes: defaultNotes,
-                hasBehaviorIssue: defaultBehaviorIssue // ✅ NEW: Include behavior flag
-            };
-        });
-        
-        console.log('📋 Initialized attendance records with behavior flags:', initialRecords);
-        setAttendanceRecords(initialRecords);
-    };
+  // Filter students based on current filters
+  const filteredStudents = useMemo(() => {
+    let filtered = safeStudents;
 
-    // Memoized filtered students to avoid unnecessary re-renders
-    const filteredStudents = useMemo(() => {
-        if (!Array.isArray(safeStudents) || safeStudents.length === 0) {
-            return [];
+    // Search term filter
+    if (filters.searchTerm) {
+      const term = filters.searchTerm.toLowerCase();
+      filtered = filtered.filter(student =>
+        `${student.firstName} ${student.lastName}`.toLowerCase().includes(term) ||
+        student.studentId?.toLowerCase().includes(term)
+      );
+    }
+
+    // Status filter
+    if (filters.statusFilter && filters.statusFilter !== 'all') {
+      filtered = filtered.filter(student => {
+        const record = attendanceRecords[student.id];
+        return record?.status === filters.statusFilter;
+      });
+    }
+
+    // Grade filter
+    if (filters.gradeFilter && filters.gradeFilter !== 'all') {
+      filtered = filtered.filter(student => 
+        student.gradeLevel?.toString() === filters.gradeFilter
+      );
+    }
+
+    // Sort students
+    if (filters.sortBy) {
+      filtered.sort((a, b) => {
+        switch (filters.sortBy) {
+          case 'name':
+            return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+          case 'grade':
+            return (a.gradeLevel || 0) - (b.gradeLevel || 0);
+          case 'section':
+            return (a.sectionName || a.section || '').localeCompare(b.sectionName || b.section || '');
+          default:
+            return 0;
         }
+      });
+    }
 
-        let filtered = [...safeStudents];
+    return filtered;
+  }, [safeStudents, attendanceRecords, filters]);
 
-        // Apply search filter
-        if (filters.searchTerm) {
-            const searchLower = filters.searchTerm.toLowerCase();
-            filtered = filtered.filter(student => 
-                `${student.firstName} ${student.lastName}`.toLowerCase().includes(searchLower) ||
-                (student.studentId && student.studentId.toString().includes(searchLower)) ||
-                (student.id && student.id.toString().includes(searchLower))
-            );
-        }
-
-        // Apply status filter
-        if (filters.statusFilter && filters.statusFilter !== 'all') {
-            filtered = filtered.filter(student => {
-                const record = attendanceRecords[student.id];
-                return record && record.status === filters.statusFilter;
-            });
-        }
-
-        // ✅ NEW: Apply behavior filter
-        if (filters.behaviorFilter && filters.behaviorFilter !== 'all') {
-            filtered = filtered.filter(student => {
-                const record = attendanceRecords[student.id];
-                if (filters.behaviorFilter === 'flagged') {
-                    return record && record.hasBehaviorIssue === true;
-                } else if (filters.behaviorFilter === 'clean') {
-                    return record && record.hasBehaviorIssue !== true;
-                }
-                return true;
-            });
-        }
-
-        // Apply homeroom filter (for subject classes)
-        if (filters.homeroomFilter && filters.homeroomFilter !== 'all' && homeroomData && Array.isArray(homeroomData.students)) {
-            filtered = filtered.filter(student => {
-                const homeroomRecord = homeroomData.students.find(s => 
-                    s.studentName === `${student.firstName} ${student.lastName}` ||
-                    s.studentId === student.id
-                );
-                
-                if (filters.homeroomFilter === 'present') {
-                    return homeroomRecord && homeroomRecord.status === 'present';
-                } else if (filters.homeroomFilter === 'absent') {
-                    return homeroomRecord && homeroomRecord.status === 'absent';
-                } else if (filters.homeroomFilter === 'late') {
-                    return homeroomRecord && homeroomRecord.status === 'late';
-                } else if (filters.homeroomFilter === 'excused') {
-                    return homeroomRecord && homeroomRecord.status === 'excused';
-                }
-                
-                return true;
-            });
-        }
-
-        // Apply grade filter
-        if (filters.gradeFilter && filters.gradeFilter !== 'all') {
-            filtered = filtered.filter(student => 
-                student.gradeLevel && student.gradeLevel.toString() === filters.gradeFilter
-            );
-        }
-
-        // Apply sorting
-        if (filters.sortBy) {
-            filtered.sort((a, b) => {
-                switch (filters.sortBy) {
-                    case 'name':
-                        const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
-                        const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
-                        return nameA.localeCompare(nameB);
-                    
-                    case 'status':
-                        const recordA = attendanceRecords[a.id];
-                        const recordB = attendanceRecords[b.id];
-                        const statusA = recordA ? recordA.status : 'present';
-                        const statusB = recordB ? recordB.status : 'present';
-                        return statusA.localeCompare(statusB);
-                    
-                    case 'grade':
-                        return (a.gradeLevel || 0) - (b.gradeLevel || 0);
-                    
-                    case 'section':
-                        const sectionA = a.section || a.sectionName || '';
-                        const sectionB = b.section || b.sectionName || '';
-                        return sectionA.localeCompare(sectionB);
-                    
-                    // ✅ NEW: Sort by behavior flag
-                    case 'behavior':
-                        const behaviorA = attendanceRecords[a.id]?.hasBehaviorIssue || false;
-                        const behaviorB = attendanceRecords[b.id]?.hasBehaviorIssue || false;
-                        return behaviorB - behaviorA; // Flagged students first
-                    
-                    default:
-                        return 0;
-                }
-            });
-        }
-
-        return filtered;
-    }, [safeStudents, attendanceRecords, filters, homeroomData]);
-
-    const bulkMarkAll = (status) => {
-        if (!Array.isArray(safeStudents)) return;
-        
-        const newRecords = { ...attendanceRecords };
-        safeStudents.forEach(student => {
-            if (student && student.id) {
-                newRecords[student.id] = {
-                    ...(newRecords[student.id] || {}),
-                    status: status
-                };
-            }
-        });
-        setAttendanceRecords(newRecords);
-    };
-
-    // ✅ NEW: Bulk behavior actions
-    const bulkSetBehaviorFlag = (hasBehaviorIssue) => {
-        if (!Array.isArray(safeStudents)) return;
-        
-        const newRecords = { ...attendanceRecords };
-        safeStudents.forEach(student => {
-            if (student && student.id) {
-                newRecords[student.id] = {
-                    ...(newRecords[student.id] || {}),
-                    hasBehaviorIssue: hasBehaviorIssue
-                };
-            }
-        });
-        setAttendanceRecords(newRecords);
-        
-        console.log(`🚩 Bulk ${hasBehaviorIssue ? 'set' : 'cleared'} behavior flags for all students`);
-    };
-
-    // ✅ ENHANCED: Include behavior stats
-    const getAttendanceStats = () => {
-        const stats = {
-            present: 0,
-            absent: 0,
-            late: 0,
-            excused: 0,
-            behaviorFlagged: 0, // ✅ NEW: Behavior flag count
-            total: safeStudents.length
-        };
-
-        Object.values(attendanceRecords || {}).forEach(record => {
-            if (record && record.status && stats.hasOwnProperty(record.status)) {
-                stats[record.status]++;
-            }
-            
-            // ✅ NEW: Count behavior flags
-            if (record && record.hasBehaviorIssue === true) {
-                stats.behaviorFlagged++;
-            }
-        });
-
-        stats.attendanceRate = stats.total > 0 ? 
-            Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
-
-        return stats;
-    };
-
-    // Debug function
-    const getDebugInfo = () => {
-        const behaviorFlaggedStudents = Object.entries(attendanceRecords || {})
-            .filter(([_, record]) => record.hasBehaviorIssue === true)
-            .map(([studentId, _]) => {
-                const student = safeStudents.find(s => s.id === studentId);
-                return student ? `${student.firstName} ${student.lastName}` : studentId;
-            });
-
-        return {
-            studentsCount: safeStudents.length,
-            filteredCount: filteredStudents.length,
-            attendanceRecordsCount: Object.keys(attendanceRecords || {}).length,
-            hasHomeroomData: !!homeroomData,
-            filters: filters,
-            currentRecords: attendanceRecords,
-            behaviorFlaggedStudents: behaviorFlaggedStudents, // ✅ NEW: Debug info
-            behaviorFlagCount: behaviorFlaggedStudents.length
-        };
-    };
-
+  // Memoized statistics
+  const stats = useMemo(() => {
+    const records = Object.values(attendanceRecords);
     return {
-        attendanceRecords: attendanceRecords || {},
-        setAttendanceRecords,
-        notes: notes || {},
-        setNotes,
-        saving: saving || false,
-        setSaving,
-        filteredStudents: filteredStudents || [],
-        bulkMarkAll,
-        bulkSetBehaviorFlag, // ✅ NEW: Bulk behavior actions
-        getAttendanceStats,
-        getDebugInfo
+      total: records.length,
+      present: records.filter(r => r.status === 'present').length,
+      absent: records.filter(r => r.status === 'absent').length,
+      late: records.filter(r => r.status === 'late').length,
+      excused: records.filter(r => r.status === 'excused').length,
+      withNotes: records.filter(r => r.notes && r.notes.trim()).length,
+      withFlags: records.filter(r => r.hasBehaviorIssue).length
     };
+  }, [attendanceRecords]);
+
+  return {
+    attendanceRecords,
+    setAttendanceRecords,
+    handleStatusChange,
+    handleNotesChange,
+    handleBehaviorChange,
+    filteredStudents,
+    saving,
+    setSaving,
+    stats
+  };
 };

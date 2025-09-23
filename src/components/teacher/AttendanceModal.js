@@ -63,16 +63,42 @@ const AttendanceModal = ({
     const currentDate = formatLongDate(new Date());
 
     // ✅ FIXED: Status change handler
-    const handleStatusChange = (studentId, status) => {
-        console.log(`📝 Status change: ${studentId} → ${status}`);
-        setAttendanceRecords(prev => ({
+const handleStatusChange = (studentId, status) => {
+    console.log(`📝 Status change: ${studentId} → ${status}`);
+    
+    // Validate inputs
+    if (!studentId) {
+        console.error('❌ Invalid studentId:', studentId);
+        return;
+    }
+    
+    if (!['present', 'absent', 'late', 'excused'].includes(status)) {
+        console.error('❌ Invalid status:', status);
+        return;
+    }
+    
+    setAttendanceRecords(prev => {
+        const updated = {
             ...prev,
             [studentId]: { 
                 ...prev[studentId], 
-                status: status 
+                status: status,
+                // Preserve existing data
+                notes: prev[studentId]?.notes || '',
+                hasBehaviorIssue: prev[studentId]?.hasBehaviorIssue || false,
+                timestamp: new Date().toISOString()
             }
-        }));
-    };
+        };
+        
+        console.log(`✅ Updated record for ${studentId}:`, updated[studentId]);
+        return updated;
+    });
+};
+
+const handleBulkUpdate = (newAttendanceRecords) => {
+    console.log('📝 Bulk updating attendance records:', newAttendanceRecords);
+    setAttendanceRecords(newAttendanceRecords);
+};
 
     // ✅ FIXED: Notes change handler
     const handleNotesChange = (studentId, notes) => {
@@ -105,6 +131,16 @@ const AttendanceModal = ({
             return updatedRecords;
         });
     };
+
+    const handleMeritChange = (studentId, hasMerit) => {
+    setAttendanceRecords(prev => ({
+        ...prev,
+        [studentId]: { 
+            ...prev[studentId], 
+            hasMerit: hasMerit  // ✅ Add merit field
+                }
+            }));
+        };
 
     // ✅ ENHANCED: Save handler with behavior flag logging
     const handleSave = async () => {
@@ -210,8 +246,8 @@ const AttendanceModal = ({
                                         
                                         <BulkActions 
                                             students={filteredStudents}
-                                            onMarkAll={(status) => filteredStudents.forEach(s => handleStatusChange(s.id, status))}
                                             attendanceRecords={attendanceRecords}
+                                            onUpdateAttendance={handleBulkUpdate}
                                         />
 
                                         <FilterPanel {...filterProps} />
@@ -223,6 +259,7 @@ const AttendanceModal = ({
                                             onStatusChange={handleStatusChange}
                                             onNotesChange={handleNotesChange}
                                             onBehaviorChange={handleBehaviorChange}  // ✅ KEY: This must be passed!
+                                            onMeritChange={handleMeritChange}
                                             homeroomData={homeroomData}
                                             isHomeroom={section.isHomeroom}
                                             viewMode={viewMode}

@@ -68,7 +68,7 @@ function App() {
                     setUser(null);
                 }
             } else {
-                console.log('👋 App: No user, showing login');
+                
                 setUser(null);
             }
             
@@ -141,7 +141,7 @@ function App() {
             />
         );
     } else {
-        console.log('👨‍🏫 App: Showing TeacherDashboard with auto-refresh');
+       
         return (
             <TeacherDashboard 
                 currentUser={user}

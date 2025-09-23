@@ -1,9 +1,4 @@
-// src/components/teacher/utils/scheduleHelpers.js
-
-/**
- * Smart subject filtering based on selected date and school schedule
- * Filters subjects to show only those scheduled for the selected date
- */
+// src/components/teacher/utils/scheduleHelpers.js - FIXED DATE COMPARISON
 
 /**
  * Main function: Get subjects scheduled for a specific date
@@ -15,13 +10,29 @@ export const getScheduledSubjectsForDate = (allSubjects, selectedDate) => {
   console.log('🗓️ Getting scheduled subjects for:', selectedDate);
   console.log('📚 All subjects:', allSubjects.map(s => s.name));
 
-  // For non-today dates, show all subjects (fallback)
-  const today = new Date().toISOString().split('T')[0];
-  const isToday = selectedDate === today;
+  // FIXED: Better date comparison that handles timezone issues
+  const today = new Date();
+  const todayString = today.getFullYear() + '-' + 
+    String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+    String(today.getDate()).padStart(2, '0');
   
+  const isToday = selectedDate === todayString;
+  
+  console.log('📅 Date comparison:', {
+    selectedDate,
+    todayString,
+    isToday,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  });
+  
+  // OPTION 1: Remove the "today only" restriction entirely
+  // Always attempt to filter based on schedule data regardless of date
+  
+  // OPTION 2: Keep the today check but with better date handling
   if (!isToday) {
-    console.log('📅 Not today - showing all subjects');
-    return allSubjects;
+    console.log('📅 Not today - but attempting schedule filtering anyway');
+    // Instead of returning all subjects, try to filter based on day of week
+    return getScheduledSubjectsForAnyDate(allSubjects, selectedDate);
   }
 
   // Get current week and day for filtering
@@ -58,6 +69,45 @@ export const getScheduledSubjectsForDate = (allSubjects, selectedDate) => {
 };
 
 /**
+ * NEW: Handle schedule filtering for any date (not just today)
+ */
+export const getScheduledSubjectsForAnyDate = (allSubjects, selectedDate) => {
+  console.log('📅 Filtering subjects for any date:', selectedDate);
+  
+  // Convert selectedDate to day of week
+  const date = new Date(selectedDate + 'T12:00:00'); // Add time to avoid timezone issues
+  const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+  
+  // Calculate which week this date falls in (you may need to adjust this)
+  const weekType = getCurrentWeek(date);
+  
+  console.log(`📊 Schedule for ${selectedDate}: ${weekType}, ${dayName}`);
+
+  const scheduledSubjects = [];
+
+  // Always include Homeroom
+  const homeroomSubject = allSubjects.find(s => s.name === 'Homeroom');
+  if (homeroomSubject) {
+    scheduledSubjects.push(homeroomSubject);
+  }
+
+  // Filter subjects based on their schedule for this day
+  allSubjects.forEach(subject => {
+    if (subject.name === 'Homeroom') return;
+
+    if (isSubjectScheduledToday(subject, weekType, dayName)) {
+      scheduledSubjects.push(subject);
+      console.log(`✅ ${subject.name} is scheduled for ${dayName}`);
+    }
+  });
+
+  console.log('🎯 Scheduled subjects for', selectedDate, ':', scheduledSubjects.map(s => s.name));
+  
+  // Return at least homeroom if no other subjects found
+  return scheduledSubjects.length > 0 ? scheduledSubjects : (homeroomSubject ? [homeroomSubject] : []);
+};
+
+/**
  * Determine current week (Week 1 or Week 2)
  * Based on your alternating schedule system
  */
@@ -90,7 +140,6 @@ export const getCurrentDay = (date = new Date()) => {
 /**
  * Check if a subject is scheduled for today
  * Uses database schedule data from subjects collection
- * Based on your Firebase structure: schedule.week1[{day, period, time}]
  */
 export const isSubjectScheduledToday = (subject, currentWeek, currentDay) => {
   // Always show Homeroom
@@ -117,207 +166,46 @@ export const isSubjectScheduledToday = (subject, currentWeek, currentDay) => {
   return false;
 };
 
+// ALTERNATIVE: Simplified version that always attempts filtering
+export const getScheduledSubjectsForDateSimple = (allSubjects, selectedDate) => {
+  console.log('🗓️ Getting scheduled subjects for:', selectedDate);
+  
+  // Convert date to day of week
+  const date = new Date(selectedDate + 'T12:00:00');
+  const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+  const weekType = getCurrentWeek(date);
+  
+  console.log(`📅 Filtering for: ${weekType} ${dayName}`);
+
+  const scheduledSubjects = [];
+  
+  // Always include Homeroom
+  const homeroom = allSubjects.find(s => s.name === 'Homeroom');
+  if (homeroom) scheduledSubjects.push(homeroom);
+
+  // Add subjects scheduled for this day
+  allSubjects.forEach(subject => {
+    if (subject.name === 'Homeroom') return;
+    
+    // Check schedule
+    if (subject.schedule?.[weekType]?.some(slot => slot.day?.toLowerCase() === dayName)) {
+      scheduledSubjects.push(subject);
+    }
+  });
+
+  console.log('📚 Found subjects:', scheduledSubjects.map(s => s.name));
+  
+  // If no subjects found (weekend?), return homeroom only
+  return scheduledSubjects.length > 0 ? scheduledSubjects : (homeroom ? [homeroom] : []);
+};
+
 /**
  * Utility function to get today's scheduled subjects (shorthand)
  */
 export const getTodaysScheduledSubjects = (allSubjects) => {
-  const today = new Date().toISOString().split('T')[0];
-  return getScheduledSubjectsForDate(allSubjects, today);
-};
-
-/**
- * Get a human-readable description of the current schedule
- */
-export const getCurrentScheduleInfo = () => {
-  const currentWeek = getCurrentWeek();
-  const currentDay = getCurrentDay();
-  
-  return {
-    week: currentWeek,
-    day: currentDay,
-    displayText: `${currentWeek.charAt(0).toUpperCase() + currentWeek.slice(1)}, ${currentDay.charAt(0).toUpperCase() + currentDay.slice(1)}`
-  };
-};
-
-/**
- * Debug function to analyze schedule patterns
- */
-export const debugScheduleForSubject = (subjectName, allSubjects) => {
-  console.group(`🔍 DEBUG: Schedule for ${subjectName}`);
-  
-  const subject = allSubjects.find(s => s.name === subjectName);
-  if (!subject) {
-    console.log('❌ Subject not found');
-    console.groupEnd();
-    return;
-  }
-
-  const currentWeek = getCurrentWeek();
-  const currentDay = getCurrentDay();
-  
-  console.log('Subject data:', subject);
-  console.log('Current week:', currentWeek);
-  console.log('Current day:', currentDay);
-  console.log('Is scheduled today:', isSubjectScheduledToday(subject, currentWeek, currentDay));
-  
-  // Test all days for current week
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-  console.log(`Schedule for ${currentWeek}:`);
-  days.forEach(day => {
-    const isScheduled = isSubjectScheduledToday(subject, currentWeek, day);
-    console.log(`  ${day}: ${isScheduled ? '✅' : '❌'}`);
-  });
-  
-  console.groupEnd();
-};
-
-/**
- * Get all subjects scheduled for a specific week
- */
-export const getSubjectsForWeek = (allSubjects, weekType = null) => {
-  const targetWeek = weekType || getCurrentWeek();
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-  
-  const weekSchedule = {};
-  
-  days.forEach(day => {
-    weekSchedule[day] = allSubjects.filter(subject => 
-      isSubjectScheduledToday(subject, targetWeek, day)
-    );
-  });
-  
-  return {
-    week: targetWeek,
-    schedule: weekSchedule,
-    totalSubjects: new Set(Object.values(weekSchedule).flat().map(s => s.name)).size
-  };
-};
-
-/**
- * 🧪 TEST FUNCTION - Test schedule helpers with your actual subjects
- * Call this in your component to verify the logic works
- */
-export const testScheduleHelpers = (allSubjects) => {
-  console.group('🧪 TESTING SCHEDULE HELPERS');
-  
-  // Log current date/time info
-  const now = new Date();
-  const currentWeek = getCurrentWeek(now);
-  const currentDay = getCurrentDay(now);
-  
-  console.log('📅 Current date:', now.toDateString());
-  console.log('📊 Current week:', currentWeek);
-  console.log('📅 Current day:', currentDay);
-  
-  // Log all subjects
-  console.log('\n📚 All subjects loaded:');
-  allSubjects.forEach((subject, index) => {
-    console.log(`  ${index + 1}. ${subject.name} (${subject.code}) - Room ${subject.room}`);
-    if (subject.schedule) {
-      console.log(`     Schedule:`, subject.schedule);
-    } else {
-      console.log('     ⚠️ No schedule data');
-    }
-  });
-  
-  // Test today's filtering
-  console.log(`\n🎯 Testing scheduled subjects for TODAY (${currentWeek}, ${currentDay}):`);
-  const todaysSubjects = getScheduledSubjectsForDate(allSubjects, now.toISOString().split('T')[0]);
-  
-  console.log('✅ Subjects scheduled for today:');
-  todaysSubjects.forEach((subject, index) => {
-    console.log(`  ${index + 1}. ${subject.name} (${subject.code})`);
-  });
-  
-  if (todaysSubjects.length === 0) {
-    console.log('  ❌ No subjects scheduled for today');
-  }
-  
-  // Test each subject individually
-  console.log('\n🔍 Individual subject analysis:');
-  allSubjects.forEach(subject => {
-    const isScheduled = isSubjectScheduledToday(subject, currentWeek, currentDay);
-    console.log(`  ${subject.name}: ${isScheduled ? '✅ SCHEDULED' : '❌ NOT SCHEDULED'}`);
-  });
-  
-  // Test different days
-  console.log('\n📅 Testing other days this week:');
-  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-  days.forEach(day => {
-    const daySubjects = allSubjects.filter(subject => 
-      isSubjectScheduledToday(subject, currentWeek, day)
-    );
-    console.log(`  ${day}: ${daySubjects.map(s => s.name).join(', ') || 'No subjects'}`);
-  });
-  
-  // Test both weeks
-  console.log('\n📊 Testing Week1 vs Week2:');
-  ['week1', 'week2'].forEach(week => {
-    console.log(`\n  ${week.toUpperCase()}:`);
-    days.forEach(day => {
-      const weekDaySubjects = allSubjects.filter(subject => 
-        isSubjectScheduledToday(subject, week, day)
-      );
-      if (weekDaySubjects.length > 0) {
-        console.log(`    ${day}: ${weekDaySubjects.map(s => s.name).join(', ')}`);
-      }
-    });
-  });
-  
-  console.groupEnd();
-  
-  // Return summary for easy access
-  return {
-    currentWeek,
-    currentDay,
-    todaysSubjects: todaysSubjects.map(s => s.name),
-    totalSubjectsToday: todaysSubjects.length,
-    allSubjectsCount: allSubjects.length
-  };
-};
-
-/**
- * 🧪 QUICK TEST - Test with mock data matching your database structure
- * Use this if you want to test without loading actual data first
- */
-export const testWithMockData = () => {
-  // Mock data matching your database structure
-  const mockSubjects = [
-    {
-      name: 'Homeroom',
-      code: 'HR',
-      room: 'HR01',
-      // No schedule needed - always shows
-    },
-    {
-      name: 'Music',
-      code: 'MS401',
-      room: '501',
-      schedule: {
-        week1: [
-          { day: 'monday', period: 2, time: '9:05-9:50' },
-          { day: 'friday', period: 8, time: '14:45-15:30' }
-        ],
-        week2: [
-          { period: 5, time: '12:15-13:00' } // No day specified - should not show
-        ]
-      }
-    },
-    {
-      name: 'Badminton',
-      code: 'BM101',
-      room: 'BM105',
-      schedule: {
-        week1: [
-          { day: 'monday', period: 2 }
-        ],
-        week2: [
-          { day: 'monday', period: 4 }
-        ]
-      }
-    }
-  ];
-  
-  console.log('🧪 TESTING WITH MOCK DATA');
-  return testScheduleHelpers(mockSubjects);
+  const today = new Date();
+  const todayString = today.getFullYear() + '-' + 
+    String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+    String(today.getDate()).padStart(2, '0');
+  return getScheduledSubjectsForDate(allSubjects, todayString);
 };

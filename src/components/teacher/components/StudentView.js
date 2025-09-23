@@ -1,8 +1,7 @@
-// src/components/teacher/components/StudentsView.js - Updated with Smart Filtering + monitorContext
+// src/components/teacher/components/StudentView.js - UPDATED WITH FIXED TOGGLE LOGIC
 import React, { useState, useMemo } from 'react';
 import { calculateOverallStudentSummary } from '../utils/monitorCalculations';
-import { getScheduledSubjectsForDate, testScheduleHelpers } from '../utils/scheduleHelpers';
-
+import { getScheduledSubjectsForDate } from '../utils/scheduleHelpers';
 
 const StudentView = ({ 
     students, 
@@ -14,59 +13,271 @@ const StudentView = ({
     searchTerm, 
     setSearchTerm, 
     currentWeekStart,
-    monitorContext  // NEW: Added prop
+    monitorContext,
+    sectionData,
+    // NEW: Props from parent MonitorModal for shared state
+    showAllSubjects: propShowAllSubjects,
+    setShowAllSubjects: propSetShowAllSubjects, 
+    parentView = 'students'
 }) => {
     const [sortBy, setSortBy] = useState('name');
     const [sortDirection, setSortDirection] = useState('asc');
     const [selectedCell, setSelectedCell] = useState(null);
     const [selectedStudent, setSelectedStudent] = useState(null);
     
-    // NEW: Smart filtering state
-    const [showAllSubjects, setShowAllSubjects] = useState(false);
+    // FALLBACK: Create local state if props aren't provided (backward compatibility)
+    const [localShowAllSubjects, setLocalShowAllSubjects] = useState(false);
+    const showAllSubjects = propShowAllSubjects !== undefined ? propShowAllSubjects : localShowAllSubjects;
+    const setShowAllSubjects = propSetShowAllSubjects || setLocalShowAllSubjects;
 
-    // ADD THIS for debugging (remove later):
-    React.useEffect(() => {
-        if (subjects.length > 0) {
-            console.log('🔥 LIVE DATA - Subjects loaded:', subjects.map(s => ({
-                name: s.name,
-                schedule: s.schedule
-            })));
+    // Get grade level from section data or students
+    const getGradeLevel = () => {
+        if (sectionData?.gradeLevel) {
+            return sectionData.gradeLevel;
         }
-    }, [subjects]);
+        
+        if (students.length > 0) {
+            const studentGrade = students[0]?.gradeLevel || students[0]?.year;
+            if (studentGrade) {
+                return studentGrade;
+            }
+        }
+        
+        return null;
+    };
 
-    // ✅ UPDATED: Smart subject filtering with monitorContext
+    const currentGrade = getGradeLevel();
+
+    // Helper functions for enrollment checking
+    const checkStudentEnrollment = (student, subject) => {
+        if (subject.name === 'Homeroom') {
+            return true;
+        }
+
+        if (student.subjectEnrollments && Array.isArray(student.subjectEnrollments)) {
+            const enrolled = student.subjectEnrollments.some(enrollment => {
+                const subjectName = enrollment.subjectName || enrollment.subject || enrollment.name;
+                return subjectName && subjectName.toLowerCase() === subject.name.toLowerCase();
+            });
+            if (enrolled) return true;
+        }
+
+        if (student.selectedSubjects && Array.isArray(student.selectedSubjects)) {
+            const enrolled = student.selectedSubjects.some(selectedSubject =>
+                selectedSubject && selectedSubject.toLowerCase() === subject.name.toLowerCase()
+            );
+            if (enrolled) return true;
+        }
+
+        if (student.subjects && Array.isArray(student.subjects)) {
+            const enrolled = student.subjects.some(s => 
+                s && s.toLowerCase() === subject.name.toLowerCase()
+            );
+            if (enrolled) return true;
+        }
+
+        if (student.subject && student.subject.toLowerCase() === subject.name.toLowerCase()) {
+            return true;
+        }
+
+        return false;
+    };
+
+    // Get subjects that students are actually enrolled in for this grade
+    const getSubjectsForGrade = (allSubjects, gradeLevel, studentsData) => {
+        console.log('🎯 Filtering subjects for grade:', gradeLevel);
+        
+        // Always include Homeroom
+        const gradeSubjects = allSubjects.filter(subject => subject.name === 'Homeroom');
+        
+        // Get unique subjects that students are actually enrolled in
+        const enrolledSubjects = new Set();
+        
+        studentsData.forEach(student => {
+            // Check all enrollment fields
+            if (student.subjectEnrollments && Array.isArray(student.subjectEnrollments)) {
+                student.subjectEnrollments.forEach(enrollment => {
+                    const subjectName = enrollment.subjectName || enrollment.subject || enrollment.name;
+                    if (subjectName) {
+                        enrolledSubjects.add(subjectName);
+                    }
+                });
+            }
+            
+            if (student.selectedSubjects && Array.isArray(student.selectedSubjects)) {
+                student.selectedSubjects.forEach(subjectName => {
+                    if (subjectName) {
+                        enrolledSubjects.add(subjectName);
+                    }
+                });
+            }
+            
+            if (student.subjects && Array.isArray(student.subjects)) {
+                student.subjects.forEach(subjectName => {
+                    if (subjectName) {
+                        enrolledSubjects.add(subjectName);
+                    }
+                });
+            }
+            
+            if (student.subject) {
+                enrolledSubjects.add(student.subject);
+            }
+        });
+        
+        // Add subjects that students are enrolled in
+        allSubjects.forEach(subject => {
+            if (subject.name !== 'Homeroom' && enrolledSubjects.has(subject.name)) {
+                gradeSubjects.push(subject);
+            }
+        });
+        
+        console.log('✅ Grade subjects found:', gradeSubjects.map(s => s.name));
+        return gradeSubjects;
+    };
+
+    // 🔧 FIXED: Corrected toggle logic - DEFAULT TO SCHEDULED SUBJECTS
     const displaySubjects = useMemo(() => {
-        // If manually toggled to show all, always show all
-        if (showAllSubjects) {
+        console.log('🎛️ Subject Filtering - Toggle:', showAllSubjects, 'Context:', monitorContext);
+        console.log('📚 Total subjects available:', subjects.length, subjects.map(s => s.name));
+        
+        // For subject teachers - they see all their subjects by default
+        if (monitorContext === 'subject') {
+            console.log('👨‍🏫 Subject teacher - showing all subjects');
             return subjects;
         }
         
-        // ✅ NEW: For subject teachers, show all subjects by default
-        // Only homeroom teachers get smart filtering
-        if (monitorContext === 'subject') {
-            return subjects; // Show all subjects for subject teachers
+        // For homeroom teachers - FIXED LOGIC
+        if (monitorContext === 'homeroom') {
+            
+            // ✅ DEFAULT STATE: Toggle OFF (false) = Show SCHEDULED subjects only (DEFAULT BEHAVIOR)
+         if (!showAllSubjects) {
+    console.log('📅 DEFAULT: Toggle OFF - showing SCHEDULED subjects only');
+    try {
+        const scheduledSubjects = getScheduledSubjectsForDate(subjects, selectedDate);
+        
+        // FIXED: Add proper validation
+        if (scheduledSubjects.length > 0 && scheduledSubjects.length < subjects.length * 0.5) {
+            // Only accept if result is less than 50% of total subjects
+            console.log('⏰ Scheduled subjects found:', scheduledSubjects.map(s => s.name));
+            return scheduledSubjects;
+        } else {
+            console.warn('⚠️ Schedule filtering returned too many subjects:', scheduledSubjects.length, 'out of', subjects.length);
+        }
+    } catch (error) {
+        console.warn('⚠️ Schedule filtering failed:', error);
+    }
+    
+    // Fallback when toggle is OFF - show minimal subjects
+    const homeroomOnly = subjects.filter(s => s.name === 'Homeroom');
+    console.log('🏠 Schedule fallback - homeroom only');
+    return homeroomOnly;
+}
+            
+            // ✅ Toggle ON (true) = Show ALL grade subjects (EXPANDED VIEW)
+            console.log('🔛 Toggle ON - showing ALL Grade subjects');
+            
+            if (currentGrade && students.length > 0) {
+                const gradeSubjects = getSubjectsForGrade(subjects, currentGrade, students);
+                
+                if (gradeSubjects.length > 1) { // More than just Homeroom
+                    console.log('📚 Grade subjects found:', gradeSubjects.map(s => s.name));
+                    return gradeSubjects;
+                }
+            }
+            
+            // Fallback - show all subjects when toggle is ON
+            console.log('🔄 Fallback - showing all subjects');
+            return subjects;
         }
         
-        // Smart filtering only for homeroom teachers (show today's scheduled subjects)
-        return getScheduledSubjectsForDate(subjects, selectedDate);
-    }, [subjects, selectedDate, showAllSubjects, monitorContext]);
+        // Final fallback for other contexts
+        return subjects;
+    }, [subjects, selectedDate, showAllSubjects, monitorContext, currentGrade, students]);
 
-    // Get attendance data for selected date
-    const dateAttendanceData = attendanceData[selectedDate] || historicalData[selectedDate] || {};
+    // Helper functions for student record matching
+    const findStudentRecord = (student, attendanceStudents) => {
+        const strategies = [
+            (s) => s.studentName === `${student.firstName} ${student.lastName}`,
+            (s) => s.studentId === student.id || s.studentId === student.studentId,
+            (s) => s.studentName === `${student.lastName}, ${student.firstName}`,
+            (s) => s.studentName?.toLowerCase() === `${student.firstName} ${student.lastName}`.toLowerCase(),
+            (s) => s.studentName?.toLowerCase().includes(student.firstName.toLowerCase()),
+            (s) => s.studentNumber === student.studentId || s.student_id === student.id
+        ];
 
-    // Helper functions - MOVED TO TOP LEVEL
+        for (const strategy of strategies) {
+            const record = attendanceStudents.find(strategy);
+            if (record) {
+                return record;
+            }
+        }
+        return null;
+    };
+
+    const checkBehaviorFlag = (studentRecord) => {
+        const behaviorFields = [
+            'hasBehaviorIssue', 'hasFlag', 'behaviorFlag', 'flagged',
+            'behavior_issue', 'has_behavior_issue', 'behaviorIssues',
+            'disciplinary', 'conduct_issue'
+        ];
+
+        for (const field of behaviorFields) {
+            if (studentRecord[field] === true || studentRecord[field] === 'true' || studentRecord[field] === 1) {
+                return true;
+            }
+        }
+
+        if (studentRecord.notes && typeof studentRecord.notes === 'string') {
+            const behaviorKeywords = ['behavior', 'disruptive', 'misconduct', 'inappropriate', 'discipline', 'warned'];
+            const hasKeyword = behaviorKeywords.some(keyword => 
+                studentRecord.notes.toLowerCase().includes(keyword)
+            );
+            
+            if (hasKeyword) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    // NEW: Merit flag check function
+    const checkMeritFlag = (studentRecord) => {
+        const meritFields = [
+            'hasMerit', 'merit', 'meritFlag', 'hasGoodBehavior', 'excellence',
+            'has_merit', 'meritAwarded', 'goodBehavior', 'exemplary'
+        ];
+
+        for (const field of meritFields) {
+            if (studentRecord[field] === true || studentRecord[field] === 'true' || studentRecord[field] === 1) {
+                return true;
+            }
+        }
+
+        if (studentRecord.notes && typeof studentRecord.notes === 'string') {
+            const meritKeywords = ['merit', 'excellent', 'outstanding', 'exemplary', 'good behavior', 'recognition'];
+            const hasKeyword = meritKeywords.some(keyword => 
+                studentRecord.notes.toLowerCase().includes(keyword)
+            );
+            
+            if (hasKeyword) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
     const getRoomDisplay = (subject) => {
-        // Special case for Homeroom - don't show room
         if (subject.name === 'Homeroom' || subject.code === 'HR') {
-            return ''; // Show nothing for homeroom
+            return '';
         }
         
-        // For other subjects, show room if available
         if (subject.room) {
-            return `Room ${subject.room}`;
+            return subject.room;
         }
         
-        // If no room data, show "TBA" (To Be Assigned)
         return 'Room TBA';
     };
 
@@ -76,17 +287,49 @@ const StudentView = ({
         }
         
         if (subject.room) {
-            return `${subject.name} - Room ${subject.room}`;
+            return `${subject.name} - ${subject.room}`;
         }
         
         return `${subject.name} - Room assignment pending`;
     };
 
-    // Enhanced behavior flag detection
+    const formatTimestamp = (timestamp) => {
+        if (!timestamp) return 'Unknown time';
+        
+        try {
+            let date;
+            
+            if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+                date = timestamp.toDate();
+            } else if (typeof timestamp === 'string') {
+                date = new Date(timestamp);
+            } else if (timestamp instanceof Date) {
+                date = timestamp;
+            } else {
+                return 'Unknown time';
+            }
+
+            const timeStr = date.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+            
+            const dateStr = date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            });
+            
+            return `${timeStr} on ${dateStr}`;
+        } catch (error) {
+            console.error('Error formatting timestamp:', error);
+            return 'Unknown time';
+        }
+    };
+
     const getAttendanceCell = (student, subject) => {
         const subjectData = dateAttendanceData[subject.name];
         
-        // Check if student is enrolled in this subject
         const isEnrolled = checkStudentEnrollment(student, subject);
         
         if (!isEnrolled) {
@@ -98,7 +341,6 @@ const StudentView = ({
             };
         }
 
-        // Check if attendance was taken for this subject
         if (!subjectData || !subjectData.students || subjectData.students.length === 0) {
             return { 
                 type: 'pending', 
@@ -108,7 +350,6 @@ const StudentView = ({
             };
         }
 
-        // Enhanced: Multiple ways to find student record
         const studentRecord = findStudentRecord(student, subjectData.students);
 
         if (!studentRecord) {
@@ -120,7 +361,6 @@ const StudentView = ({
             };
         }
 
-        // Attendance taken - show status with icons
         const statusIcons = {
             present: '✅',
             absent: '❌', 
@@ -138,13 +378,17 @@ const StudentView = ({
         let display = statusIcons[studentRecord.status] || '❓';
         let className = statusColors[studentRecord.status] || 'text-secondary';
         
-        // Enhanced: Multiple behavior flag checks
         const hasBehaviorIssue = checkBehaviorFlag(studentRecord);
+        const hasMerit = checkMeritFlag(studentRecord);
+        
         if (hasBehaviorIssue) {
             display += '🚩';
         }
         
-        // Add notes indicator
+        if (hasMerit) {
+            display += '⭐';
+        }
+        
         if (studentRecord.notes && studentRecord.notes.trim()) {
             display += '📝';
         }
@@ -153,129 +397,22 @@ const StudentView = ({
             type: 'taken',
             display,
             className,
-            tooltip: `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}${studentRecord.notes ? ` - ${studentRecord.notes}` : ''}${hasBehaviorIssue ? ' (Behavior Issue)' : ''}`,
+            tooltip: `${studentRecord.status?.charAt(0).toUpperCase() + studentRecord.status?.slice(1)}${studentRecord.notes ? ` - ${studentRecord.notes}` : ''}${hasBehaviorIssue ? ' (Behavior Issue)' : ''}${hasMerit ? ' (Merit Awarded)' : ''}`,
             record: studentRecord,
-            hasBehaviorFlag: hasBehaviorIssue
+            hasBehaviorFlag: hasBehaviorIssue,
+            hasMeritFlag: hasMerit,
+            subjectMetadata: subjectData
         };
     };
 
-    // Enhanced student record matching
-    const findStudentRecord = (student, attendanceStudents) => {
-        // Try multiple matching strategies
-        const strategies = [
-            // Strategy 1: Exact name match
-            (s) => s.studentName === `${student.firstName} ${student.lastName}`,
-            
-            // Strategy 2: Student ID match
-            (s) => s.studentId === student.id || s.studentId === student.studentId,
-            
-            // Strategy 3: Reverse name match
-            (s) => s.studentName === `${student.lastName}, ${student.firstName}`,
-            
-            // Strategy 4: Case insensitive name match
-            (s) => s.studentName?.toLowerCase() === `${student.firstName} ${student.lastName}`.toLowerCase(),
-            
-            // Strategy 5: Partial name match (first name only)
-            (s) => s.studentName?.toLowerCase().includes(student.firstName.toLowerCase()),
-            
-            // Strategy 6: Student number/ID variations
-            (s) => s.studentNumber === student.studentId || s.student_id === student.id
-        ];
+    const dateAttendanceData = attendanceData[selectedDate] || historicalData[selectedDate] || {};
 
-        for (const strategy of strategies) {
-            const record = attendanceStudents.find(strategy);
-            if (record) {
-                return record;
-            }
-        }
-        
-        return null;
-    };
-
-    // Enhanced behavior flag detection
-    const checkBehaviorFlag = (studentRecord) => {
-        // Check all possible behavior flag fields
-        const behaviorFields = [
-            'hasBehaviorIssue',
-            'hasFlag',
-            'behaviorFlag', 
-            'flagged',
-            'behavior_issue',
-            'has_behavior_issue',
-            'behaviorIssues',
-            'disciplinary',
-            'conduct_issue'
-        ];
-
-        for (const field of behaviorFields) {
-            if (studentRecord[field] === true || studentRecord[field] === 'true' || studentRecord[field] === 1) {
-                return true;
-            }
-        }
-
-        // Check for behavior in notes (common pattern)
-        if (studentRecord.notes && typeof studentRecord.notes === 'string') {
-            const behaviorKeywords = ['behavior', 'disruptive', 'misconduct', 'inappropriate', 'discipline', 'warned'];
-            const hasKeyword = behaviorKeywords.some(keyword => 
-                studentRecord.notes.toLowerCase().includes(keyword)
-            );
-            
-            if (hasKeyword) {
-                return true;
-            }
-        }
-
-        return false;
-    };
-
-    // Check if student is enrolled in subject
-    const checkStudentEnrollment = (student, subject) => {
-        // For homeroom, all students are enrolled
-        if (subject.name === 'Homeroom') {
-            return true;
-        }
-
-        // Check subjectEnrollments array
-        if (student.subjectEnrollments && Array.isArray(student.subjectEnrollments)) {
-            const enrolled = student.subjectEnrollments.some(enrollment => {
-                const subjectName = enrollment.subjectName || enrollment.subject || enrollment.name;
-                return subjectName && subjectName.toLowerCase() === subject.name.toLowerCase();
-            });
-            if (enrolled) return true;
-        }
-
-        // Check selectedSubjects array
-        if (student.selectedSubjects && Array.isArray(student.selectedSubjects)) {
-            const enrolled = student.selectedSubjects.some(selectedSubject =>
-                selectedSubject && selectedSubject.toLowerCase() === subject.name.toLowerCase()
-            );
-            if (enrolled) return true;
-        }
-
-        // Check subjects array
-        if (student.subjects && Array.isArray(student.subjects)) {
-            const enrolled = student.subjects.some(s => 
-                s && s.toLowerCase() === subject.name.toLowerCase()
-            );
-            if (enrolled) return true;
-        }
-
-        // Check direct subject field
-        if (student.subject && student.subject.toLowerCase() === subject.name.toLowerCase()) {
-            return true;
-        }
-
-        return false;
-    };
-
-    // Get summary stats using displaySubjects (filtered subjects)
     const getSummaryStats = () => {
         return calculateOverallStudentSummary(students, displaySubjects, { [selectedDate]: dateAttendanceData });
     };
 
     const stats = getSummaryStats();
 
-    // Filter and sort students
     const filteredAndSortedStudents = useMemo(() => {
         let filtered = students.filter(student =>
             `${student.firstName} ${student.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -328,23 +465,38 @@ const StudentView = ({
         }
     };
 
-    // Handle student name click
     const handleStudentClick = (student) => {
         setSelectedStudent(student);
     };
 
-    // Quick date navigation
     const goToToday = () => {
-        setSelectedDate(new Date().toISOString().split('T')[0]);
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const todayString = `${year}-${month}-${day}`;
+        console.log('Setting today to:', todayString);
+        setSelectedDate(todayString);
     };
 
     const goToYesterday = () => {
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
-        setSelectedDate(yesterday.toISOString().split('T')[0]);
+        const year = yesterday.getFullYear();
+        const month = String(yesterday.getMonth() + 1).padStart(2, '0');
+        const day = String(yesterday.getDate()).padStart(2, '0');
+        const yesterdayString = `${year}-${month}-${day}`;
+        setSelectedDate(yesterdayString);
     };
 
-    const isToday = selectedDate === new Date().toISOString().split('T')[0];
+    const isToday = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const todayString = `${year}-${month}-${day}`;
+        return selectedDate === todayString;
+    };
 
     // Student Detail View
     if (selectedStudent) {
@@ -369,7 +521,6 @@ const StudentView = ({
                     </button>
                 </div>
 
-                {/* Student's Subject Attendance */}
                 <div className="card">
                     <div className="card-header">
                         <h6 className="mb-0">Subject Attendance - {new Date(selectedDate).toLocaleDateString()}</h6>
@@ -397,9 +548,11 @@ const StudentView = ({
                                                                 {subject.code}
                                                             </span>
                                                             {subject.name}
-                                                            {/* Show behavior flag in student detail */}
                                                             {cell.hasBehaviorFlag && (
                                                                 <span className="ms-2">🚩</span>
+                                                            )}
+                                                            {cell.hasMeritFlag && (
+                                                                <span className="ms-2">⭐</span>
                                                             )}
                                                         </h6>
                                                         {!isEnrolled && (
@@ -441,82 +594,103 @@ const StudentView = ({
 
     return (
         <div className="students-view">
-            {/* Header Controls */}
-            <div className="d-flex justify-content-between align-items-center mb-3">
-                <div className="d-flex align-items-center gap-2">
-                    <input
-                        type="text"
-                        className="form-control form-control-sm"
-                        placeholder="Search students..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{ width: '200px' }}
-                    />
-                    
-                    {/* ✅ NEW: Smart subject toggle - only show for homeroom teachers */}
-                    {monitorContext === 'homeroom' && (
-                        <div className="form-check form-switch">
-                            <input
-                                className="form-check-input"
-                                type="checkbox"
-                                id="showAllSubjects"
-                                checked={showAllSubjects}
-                                onChange={(e) => setShowAllSubjects(e.target.checked)}
-                            />
-                            <label className="form-check-label" htmlFor="showAllSubjects">
-                                <small>Show all subjects</small>
-                            </label>
-                        </div>
-                    )}
+            {/* ENHANCED Header Controls */}
+            <div className="row mb-3 align-items-center">
+                <div className="col-md-6">
+                    <div className="d-flex align-items-center gap-2">
+                        <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            placeholder="Search students..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            style={{ width: '200px' }}
+                        />
+                        
+                        {/* TOGGLE: Only for homeroom teachers - FIXED LABELS */}
+                        {monitorContext === 'homeroom' && (
+                            <div className="form-check form-switch">
+                                <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    id="showAllSubjects"
+                                    checked={showAllSubjects}
+                                    onChange={(e) => setShowAllSubjects(e.target.checked)}
+                                />
+                                <label className="form-check-label" htmlFor="showAllSubjects">
+                                    <small>
+                                        {showAllSubjects ? 
+                                            `Show all Grade ${currentGrade || 'student'} subjects (${displaySubjects.length})` : 
+                                            `Show scheduled subjects only (${displaySubjects.length})`
+                                        }
+                                    </small>
+                                </label>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 
-                <div className="d-flex align-items-center gap-2">
-                    <input
-                        type="date"
-                        className="form-control form-control-sm"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        style={{ width: '140px' }}
-                    />
-                    <div className="btn-group btn-group-sm">
-                        <button 
-                            className={`btn ${isToday ? 'btn-primary' : 'btn-outline-primary'}`}
-                            onClick={goToToday}
-                        >
-                            Today
-                        </button>
-                        <button 
-                            className="btn btn-outline-secondary"
-                            onClick={goToYesterday}
-                        >
-                            Yesterday
-                        </button>
+                <div className="col-md-6">
+                    {/* Date Picker Section */}
+                    <div className="d-flex align-items-center justify-content-md-end gap-2">
+                        <input
+                            type="date"
+                            className="form-control form-control-sm"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            style={{ width: '140px' }}
+                            title="Select specific date"
+                        />
+                        
+                        <div className="btn-group btn-group-sm">
+                            <button 
+                                className={`btn ${isToday() ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={goToToday}
+                            >
+                                Today
+                            </button>
+                            <button 
+                                className="btn btn-outline-secondary"
+                                onClick={goToYesterday}
+                            >
+                                Yesterday
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* ✅ NEW: Context indicator */}
+            {/* IMPROVED Context indicators */}
             {monitorContext === 'subject' && (
                 <div className="alert alert-info alert-dismissible border-0 py-2 mb-3">
                     <small>
-                        <i className="bi bi-info-circle me-1"></i>
-                        <strong>Subject Teacher View:</strong> Showing all subjects automatically. 
-                        Use the "Show scheduled only" toggle if you need to filter.
+                        <i className="bi bi-person-badge me-1"></i>
+                        <strong>Subject Teacher View:</strong> Showing all {displaySubjects.length} subjects automatically.
                     </small>
                 </div>
             )}
 
-    
-            {monitorContext === 'homeroom' && showAllSubjects && (
-                <div className="mb-2">
-                    <small className="text-muted">
-                        Showing all {subjects.length} subjects
-                        <button 
-                            className="btn btn-link btn-sm p-0 ms-2"
-                            onClick={() => setShowAllSubjects(false)}
-                        >
-                            Show scheduled only
-                        </button>
+            {monitorContext === 'homeroom' && currentGrade && (
+                <div className={`alert ${showAllSubjects ? 'alert-success' : 'alert-primary'} alert-dismissible border-0 py-2 mb-3`}>
+                    <small>
+                        <i className="bi bi-mortarboard me-1"></i>
+                        <strong>Grade {currentGrade} Homeroom View:</strong> 
+                        {showAllSubjects ? (
+                            <span> Showing all {displaySubjects.length} subjects for Grade {currentGrade}</span>
+                        ) : (
+                            <span> Showing subjects scheduled for today only ({displaySubjects.length} subjects)</span>
+                        )}
+                    </small>
+                </div>
+            )}
+
+            {/* DEBUG INFO - Show when there might be an issue */}
+            {displaySubjects.length > 20 && !showAllSubjects && (
+                <div className="alert alert-warning alert-dismissible border-0 py-2 mb-3">
+                    <small>
+                        <i className="bi bi-exclamation-triangle me-1"></i>
+                        <strong>Debug:</strong> Showing {displaySubjects.length} subjects when scheduled filtering should show fewer. 
+                        Check schedule data or toggle to "Show all subjects" for full view.
                     </small>
                 </div>
             )}
@@ -565,11 +739,11 @@ const StudentView = ({
                 </div>
             </div>
 
-            {/* Legend */}
+            {/* Updated Legend with Merit Flag */}
             <div className="card border-0 bg-light mb-3">
                 <div className="card-body p-2">
                     <div className="row">
-                        <div className="col-md-7">
+                        <div className="col-md-6">
                             <small className="fw-bold text-muted">STATUS:</small>
                             <div className="d-flex gap-2 mt-1 flex-wrap">
                                 <span><span className="text-success">✅</span> Present</span>
@@ -579,10 +753,11 @@ const StudentView = ({
                                 <span><span className="text-warning">⏳</span> Pending</span>
                             </div>
                         </div>
-                        <div className="col-md-5">
+                        <div className="col-md-6">
                             <small className="fw-bold text-muted">INDICATORS:</small>
                             <div className="d-flex gap-2 mt-1 flex-wrap">
                                 <span>🚩 Behavior</span>
+                                <span>⭐ Merit</span>
                                 <span>📝 Notes</span>
                                 <span><em className="text-muted">(blank) Not Enrolled</em></span>
                             </div>
@@ -591,7 +766,7 @@ const StudentView = ({
                 </div>
             </div>
 
-            {/* Compact Table Layout - NOW USES displaySubjects (filtered) */}
+            {/* Main Table */}
             <div className="table-responsive">
                 <table className="table table-sm table-hover" style={{ width: 'auto' }}>
                     <thead className="table-light sticky-top">
@@ -611,7 +786,6 @@ const StudentView = ({
                                 Grade/Section
                                 <i className={`bi ${getSortIcon('section')} ms-1`}></i>
                             </th>
-                            {/* NOW RENDERS displaySubjects (filtered) INSTEAD OF subjects */}
                             {displaySubjects.map(subject => (
                                 <th 
                                     key={subject.id} 
@@ -671,10 +845,9 @@ const StudentView = ({
                                 </td>
                                 <td>
                                     <small className="text-muted">
-                                        {student.gradeLevel || 'N/A'}-{student.section || student.sectionName || 'N/A'}
+                                        {student.year || 'N/A'}-{student.section || student.sectionName || 'N/A'}
                                     </small>
                                 </td>
-                                {/* NOW RENDERS displaySubjects (filtered) INSTEAD OF subjects */}
                                 {displaySubjects.map(subject => {
                                     const cell = getAttendanceCell(student, subject);
                                     return (
@@ -707,9 +880,11 @@ const StudentView = ({
                 <small className="text-muted">
                     Showing {filteredAndSortedStudents.length} of {students.length} students for {new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                     {searchTerm && ` • Filtered by "${searchTerm}"`}
-                    {/* ✅ NEW: Show subject filter info */}
                     {monitorContext === 'homeroom' && !showAllSubjects && displaySubjects.length < subjects.length && (
                         <span className="text-info"> • Showing scheduled subjects only</span>
+                    )}
+                    {monitorContext === 'homeroom' && showAllSubjects && (
+                        <span className="text-success"> • Showing all grade subjects</span>
                     )}
                     {monitorContext === 'subject' && (
                         <span className="text-info"> • Subject teacher view (all subjects)</span>
@@ -720,7 +895,7 @@ const StudentView = ({
                 </small>
             </div>
 
-            {/* Cell Detail Modal - unchanged */}
+            {/* ENHANCED Cell Detail Modal with Timestamp */}
             {selectedCell && (
                 <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
                     <div className="modal-dialog">
@@ -778,21 +953,59 @@ const StudentView = ({
                                                     {selectedCell.cell.hasBehaviorFlag && (
                                                         <span className="badge bg-warning text-dark me-1">🚩 Behavior</span>
                                                     )}
+                                                    {selectedCell.cell.hasMeritFlag && (
+                                                        <span className="badge bg-success me-1">⭐ Merit</span>
+                                                    )}
                                                     {selectedCell.cell.record.notes && (
                                                         <span className="badge bg-info">📝 Notes</span>
                                                     )}
-                                                    {!selectedCell.cell.hasBehaviorFlag && !selectedCell.cell.record.notes && (
+                                                    {!selectedCell.cell.hasBehaviorFlag && !selectedCell.cell.hasMeritFlag && !selectedCell.cell.record.notes && (
                                                         <span className="text-muted">None</span>
                                                     )}
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {/* Timestamp Section */}
+                                        <div className="row mb-3">
+                                            <div className="col-6">
+                                                <strong>Recorded:</strong>
+                                                <div className="text-muted">
+                                                    <i className="bi bi-clock me-1"></i>
+                                                    {selectedCell.cell.subjectMetadata?.time || 
+                                                     formatTimestamp(selectedCell.cell.record.recordedAt || 
+                                                                   selectedCell.cell.record.timestamp ||
+                                                                   selectedCell.cell.subjectMetadata?.createdAt)}
+                                                </div>
+                                            </div>
+                                            <div className="col-6">
+                                                <strong>Taken by:</strong>
+                                                <div className="text-muted">
+                                                    <i className="bi bi-person me-1"></i>
+                                                    {selectedCell.cell.subjectMetadata?.takenBy || 
+                                                     selectedCell.cell.record.recordedBy ||
+                                                     selectedCell.cell.record.teacherName ||
+                                                     'Unknown'}
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         {selectedCell.cell.record.notes && (
                                             <div className="mt-3">
                                                 <strong>Notes:</strong>
                                                 <div className="alert alert-light mt-1 mb-0">
                                                     {selectedCell.cell.record.notes}
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* Additional metadata if available */}
+                                        {(selectedCell.cell.record.recordedAt || selectedCell.cell.record.lastModified) && (
+                                            <div className="mt-3">
+                                                <small className="text-muted">
+                                                    <i className="bi bi-info-circle me-1"></i>
+                                                    Last updated: {formatTimestamp(selectedCell.cell.record.lastModified || selectedCell.cell.record.recordedAt)}
+                                                </small>
                                             </div>
                                         )}
                                     </>

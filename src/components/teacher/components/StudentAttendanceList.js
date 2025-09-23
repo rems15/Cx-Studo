@@ -1,4 +1,4 @@
-// src/components/teacher/components/StudentAttendanceList.js - WITH DEBUG LOGGING
+// src/components/teacher/components/StudentAttendanceList.js - MINIMAL MERIT ADDITION
 import React, { useState } from 'react';
 import { getHomeroomStatusBadge, getStatusOptions } from '../utils/attendanceHelpers';
 
@@ -8,6 +8,7 @@ const StudentAttendanceList = ({
     onStatusChange, 
     onNotesChange, 
     onBehaviorChange,
+    onMeritChange,  // ✅ NEW: Merit handler prop
     homeroomData, 
     isHomeroom, 
     viewMode 
@@ -28,7 +29,7 @@ const StudentAttendanceList = ({
 
     // Format grade and section
     const formatGradeSection = (student) => {
-        const grade = student.gradeLevel || 'N/A';
+        const grade = student.year || 'N/A';
         const section = student.section || student.sectionName || 'N/A';
         return `Grade ${grade} - ${section}`;
     };
@@ -192,6 +193,8 @@ const StudentAttendanceList = ({
                             </th>
                             <th style={{ minWidth: '250px' }}>Notes</th>
                             <th style={{ width: '80px', textAlign: 'center' }}>Behavior</th>
+                            {/* ✅ NEW: Merit column - keeping it simple */}
+                            <th style={{ width: '80px', textAlign: 'center' }}>Merit</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -199,7 +202,8 @@ const StudentAttendanceList = ({
                             const record = attendanceRecords[student.id] || { 
                                 status: 'present', 
                                 notes: '', 
-                                hasBehaviorIssue: false 
+                                hasBehaviorIssue: false,
+                                hasMerit: false  // ✅ NEW: Default merit value
                             };
                             
                             return (
@@ -221,7 +225,6 @@ const StudentAttendanceList = ({
                                                            title="Behavior issue flagged"></i>
                                                     )}
                                                 </div>
-                                                
                                             </div>
                                         </div>
                                     </td>
@@ -257,7 +260,7 @@ const StudentAttendanceList = ({
                                         />
                                     </td>
                                     
-                                    {/* ✅ ENHANCED BEHAVIOR CHECKBOX WITH DEBUG LOGGING */}
+                                    {/* Existing behavior checkbox */}
                                     <td className="text-center">
                                         <div className="form-check d-flex justify-content-center">
                                             <input
@@ -265,25 +268,28 @@ const StudentAttendanceList = ({
                                                 type="checkbox"
                                                 checked={record.hasBehaviorIssue || false}
                                                 onChange={(e) => {
-                                                    const studentName = `${student.firstName} ${student.lastName}`;
-                                                    const isChecked = e.target.checked;
-                                                    
-                                                    // ✅ DEBUG LOGGING
-                                                    console.log(`🚩 BEHAVIOR CHECKBOX CLICKED:`);
-                                                    console.log(`   Student: ${studentName}`);
-                                                    console.log(`   ID: ${student.id}`);
-                                                    console.log(`   Checked: ${isChecked}`);
-                                                    console.log(`   Current record:`, record);
-                                                    console.log(`   onBehaviorChange exists:`, !!onBehaviorChange);
-                                                    
-                                                    // Call the handler
                                                     if (onBehaviorChange) {
-                                                        onBehaviorChange(student.id, isChecked);
-                                                    } else {
-                                                        console.error(`❌ onBehaviorChange handler is missing!`);
+                                                        onBehaviorChange(student.id, e.target.checked);
                                                     }
                                                 }}
                                                 title="Check if student has behavior issues"
+                                            />
+                                        </div>
+                                    </td>
+
+                                    {/* ✅ NEW: Merit checkbox - simple addition */}
+                                    <td className="text-center">
+                                        <div className="form-check d-flex justify-content-center">
+                                            <input
+                                                className="form-check-input"
+                                                type="checkbox"
+                                                checked={record.hasMerit || false}
+                                                onChange={(e) => {
+                                                    if (onMeritChange) {
+                                                        onMeritChange(student.id, e.target.checked);
+                                                    }
+                                                }}
+                                                title="Check if student deserves merit"
                                             />
                                         </div>
                                     </td>
@@ -294,7 +300,7 @@ const StudentAttendanceList = ({
                 </table>
             </div>
             
-            {/* Table Summary */}
+            {/* Keep existing table summary unchanged */}
             <div className="mt-2">
                 <small className="text-muted">
                     Showing {sortedStudents.length} students • 

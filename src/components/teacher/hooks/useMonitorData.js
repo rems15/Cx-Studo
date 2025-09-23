@@ -155,6 +155,7 @@ export const useMonitorData = (sectionData, monitorContext, focusSubjects) => {
                         name: subjectData.name,
                         code: subjectData.code || subjectData.name.substring(0, 3).toUpperCase(),
                         color: subjectData.color || '#6c757d',
+                        room: subjectData.room || 'TBA',
                         schedule: subjectData.schedule
                     });
                 });
@@ -185,6 +186,8 @@ export const useMonitorData = (sectionData, monitorContext, focusSubjects) => {
                         id: doc.id,
                         code: subjectData.code || subjectData.name.substring(0, 3).toUpperCase(),
                         color: subjectData.color || '#6c757d',
+                        schedule: subjectData.schedule,
+                        room: subjectData.room || 'TBA',
                         ...subjectData
                     };
                 });
@@ -197,7 +200,8 @@ export const useMonitorData = (sectionData, monitorContext, focusSubjects) => {
                         id: subjectInfo?.id || subjectName.toLowerCase().replace(/\s+/g, '-'),
                         name: subjectName,
                         code: subjectInfo?.code || subjectName.substring(0, 3).toUpperCase(),
-                        color: subjectInfo?.color || '#6c757d'
+                        color: subjectInfo?.color || '#6c757d',
+                        room: subjectInfo?.room || 'TBA',
                     });
                 });
             }
@@ -212,113 +216,113 @@ export const useMonitorData = (sectionData, monitorContext, focusSubjects) => {
 
     // ✅ COMPLETELY FIXED: Simple and clear attendance loading
    // FIXED loadTodaysAttendance function - PRESERVES BEHAVIOR FLAGS
-const loadTodaysAttendance = async () => {
-    try {
-        const today = new Date().toISOString().split('T')[0];
-        console.log('📅 Loading attendance for:', today);
-        
-        // Get all attendance records for today
-        const attendanceQuery = query(
-            collection(db, 'attendance'),
-            where('date', '==', today)
-        );
-        
-        const attendanceSnapshot = await getDocs(attendanceQuery);
-        console.log(`📊 Found ${attendanceSnapshot.size} total attendance records for today`);
-        
-        // Process attendance by subject
-        const todayData = {};
-        
-        attendanceSnapshot.forEach(doc => {
-            const data = doc.data();
+    const loadTodaysAttendance = async () => {
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            console.log('📅 Loading attendance for:', today);
             
-            // Skip records without students
-            if (!data.students || !Array.isArray(data.students) || data.students.length === 0) {
-                return;
-            }
-            
-            // Get subject name
-            const subjectName = data.isHomeroom ? 'Homeroom' : (data.subject || 'Unknown');
-            
-            // Initialize subject data if not exists
-            if (!todayData[subjectName]) {
-                todayData[subjectName] = {
-                    students: [],
-                    takenBy: data.teacherName || 'Unknown',
-                    time: data.createdAt?.toDate?.()?.toLocaleTimeString() || 
-                          data.updatedAt?.toDate?.()?.toLocaleTimeString() || 'Unknown'
-                };
-            }
-            
-            // ✅ FIXED: Preserve ALL student data including behavior flags
-            const processedStudents = data.students.map(student => {
-                // ✅ Keep ALL original fields from database
-                const processedStudent = {
-                    ...student, // This preserves hasBehaviorIssue, hasFlag, behaviorFlag, etc.
-                    
-                    // Add metadata
-                    teacherName: data.teacherName || 'Unknown',
-                    timestamp: data.createdAt?.toDate?.()?.toISOString() || 
-                              data.updatedAt?.toDate?.()?.toISOString(),
-                    sectionId: data.sectionId,
-                    docId: doc.id,
-                    
-                    // ✅ ENSURE behavior flags are explicitly preserved
-                    hasBehaviorIssue: student.hasBehaviorIssue || false,
-                    hasFlag: student.hasFlag || student.hasBehaviorIssue || false,
-                    behaviorFlag: student.behaviorFlag || student.hasBehaviorIssue || false,
-                    flagged: student.flagged || student.hasBehaviorIssue || false
-                };
-                
-                // Debug log behavior flags
-                if (processedStudent.hasBehaviorIssue || processedStudent.hasFlag || processedStudent.behaviorFlag) {
-                    console.log(`🚩 LOADED behavior flag for: ${processedStudent.studentName}`);
-                    console.log(`   hasBehaviorIssue: ${processedStudent.hasBehaviorIssue}`);
-                    console.log(`   hasFlag: ${processedStudent.hasFlag}`);
-                    console.log(`   behaviorFlag: ${processedStudent.behaviorFlag}`);
-                }
-                
-                return processedStudent;
-            });
-            
-            // Add students to subject
-            todayData[subjectName].students.push(...processedStudents);
-            
-            console.log(`📚 ${subjectName}: ${processedStudents.length} students from section ${data.sectionId}`);
-            
-            // Debug: Count behavior flags in this subject
-            const flaggedCount = processedStudents.filter(s => 
-                s.hasBehaviorIssue || s.hasFlag || s.behaviorFlag
-            ).length;
-            
-            if (flaggedCount > 0) {
-                console.log(`🚩 ${subjectName}: ${flaggedCount} students with behavior flags`);
-            }
-        });
-        
-        console.log('✅ Final attendance data structure:', Object.keys(todayData));
-        console.log('📊 Attendance summary:');
-        Object.entries(todayData).forEach(([subject, data]) => {
-            const flaggedStudents = data.students.filter(s => 
-                s.hasBehaviorIssue || s.hasFlag || s.behaviorFlag
+            // Get all attendance records for today
+            const attendanceQuery = query(
+                collection(db, 'attendance'),
+                where('date', '==', today)
             );
             
-            console.log(`  ${subject}: ${data.students.length} students, taken by ${data.takenBy}`);
-            if (flaggedStudents.length > 0) {
-                console.log(`    🚩 ${flaggedStudents.length} students with behavior flags:`, 
-                    flaggedStudents.map(s => s.studentName)
+            const attendanceSnapshot = await getDocs(attendanceQuery);
+            console.log(`📊 Found ${attendanceSnapshot.size} total attendance records for today`);
+            
+            // Process attendance by subject
+            const todayData = {};
+            
+            attendanceSnapshot.forEach(doc => {
+                const data = doc.data();
+                
+                // Skip records without students
+                if (!data.students || !Array.isArray(data.students) || data.students.length === 0) {
+                    return;
+                }
+                
+                // Get subject name
+                const subjectName = data.isHomeroom ? 'Homeroom' : (data.subject || 'Unknown');
+                
+                // Initialize subject data if not exists
+                if (!todayData[subjectName]) {
+                    todayData[subjectName] = {
+                        students: [],
+                        takenBy: data.teacherName || 'Unknown',
+                        time: data.createdAt?.toDate?.()?.toLocaleTimeString() || 
+                            data.updatedAt?.toDate?.()?.toLocaleTimeString() || 'Unknown'
+                    };
+                }
+                
+                // ✅ FIXED: Preserve ALL student data including behavior flags
+                const processedStudents = data.students.map(student => {
+                    // ✅ Keep ALL original fields from database
+                    const processedStudent = {
+                        ...student, // This preserves hasBehaviorIssue, hasFlag, behaviorFlag, etc.
+                        
+                        // Add metadata
+                        teacherName: data.teacherName || 'Unknown',
+                        timestamp: data.createdAt?.toDate?.()?.toISOString() || 
+                                data.updatedAt?.toDate?.()?.toISOString(),
+                        sectionId: data.sectionId,
+                        docId: doc.id,
+                        
+                        // ✅ ENSURE behavior flags are explicitly preserved
+                        hasBehaviorIssue: student.hasBehaviorIssue || false,
+                        hasFlag: student.hasFlag || student.hasBehaviorIssue || false,
+                        behaviorFlag: student.behaviorFlag || student.hasBehaviorIssue || false,
+                        flagged: student.flagged || student.hasBehaviorIssue || false
+                    };
+                    
+                    // Debug log behavior flags
+                    if (processedStudent.hasBehaviorIssue || processedStudent.hasFlag || processedStudent.behaviorFlag) {
+                        console.log(`🚩 LOADED behavior flag for: ${processedStudent.studentName}`);
+                        console.log(`   hasBehaviorIssue: ${processedStudent.hasBehaviorIssue}`);
+                        console.log(`   hasFlag: ${processedStudent.hasFlag}`);
+                        console.log(`   behaviorFlag: ${processedStudent.behaviorFlag}`);
+                    }
+                    
+                    return processedStudent;
+                });
+                
+                // Add students to subject
+                todayData[subjectName].students.push(...processedStudents);
+                
+                console.log(`📚 ${subjectName}: ${processedStudents.length} students from section ${data.sectionId}`);
+                
+                // Debug: Count behavior flags in this subject
+                const flaggedCount = processedStudents.filter(s => 
+                    s.hasBehaviorIssue || s.hasFlag || s.behaviorFlag
+                ).length;
+                
+                if (flaggedCount > 0) {
+                    console.log(`🚩 ${subjectName}: ${flaggedCount} students with behavior flags`);
+                }
+            });
+            
+            console.log('✅ Final attendance data structure:', Object.keys(todayData));
+            console.log('📊 Attendance summary:');
+            Object.entries(todayData).forEach(([subject, data]) => {
+                const flaggedStudents = data.students.filter(s => 
+                    s.hasBehaviorIssue || s.hasFlag || s.behaviorFlag
                 );
-            }
-        });
-        
-        // Set data in the format expected by StudentsView
-        setAttendanceData({ [today]: todayData });
-        
-    } catch (err) {
-        console.error('❌ Error loading today attendance:', err);
-        setAttendanceData({});
-    }
-};
+                
+                console.log(`  ${subject}: ${data.students.length} students, taken by ${data.takenBy}`);
+                if (flaggedStudents.length > 0) {
+                    console.log(`    🚩 ${flaggedStudents.length} students with behavior flags:`, 
+                        flaggedStudents.map(s => s.studentName)
+                    );
+                }
+            });
+            
+            // Set data in the format expected by StudentsView
+            setAttendanceData({ [today]: todayData });
+            
+        } catch (err) {
+            console.error('❌ Error loading today attendance:', err);
+            setAttendanceData({});
+        }
+    };
 
     // ✅ FIXED: Simplified weekly attendance loading
     const loadWeeklyAttendance = async () => {
