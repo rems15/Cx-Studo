@@ -42,19 +42,33 @@ const MonitorModal = ({
     const config = getContextConfig(monitorContext, focusSubjects, subjectColors);
 
     // Calculate performance data
-    const calculatePerformanceData = () => {
-        if (!students || students.length === 0) return [];
-        
-        return students.map(student => {
-            const studentAttendance = attendanceData || {};
-            let totalClasses = 0, presentCount = 0, absentCount = 0, lateCount = 0;
-            let behaviorFlags = 0, meritPoints = 0;
+  const calculatePerformanceData = () => {
+    if (!students || students.length === 0) return [];
+    
+    console.log('📊 Calculating Performance Data...');
+    console.log('  - Students:', students.length);
+    console.log('  - Attendance Data:', attendanceData);
+    console.log('  - Historical Data:', historicalData);
+    
+    return students.map(student => {
+        let totalClasses = 0, presentCount = 0, absentCount = 0, lateCount = 0;
+        let behaviorFlags = 0, meritPoints = 0;
 
-            // Count across all subjects
-            Object.values(studentAttendance).forEach(subjectData => {
-                if (Array.isArray(subjectData)) {
-                    const record = subjectData.find(r => r.id === student.id || r.studentId === student.id);
+        // ✅ FIX 1: Check TODAY'S attendance data
+        if (attendanceData && typeof attendanceData === 'object') {
+            Object.keys(attendanceData).forEach(subjectOrDate => {
+                const data = attendanceData[subjectOrDate];
+                
+                // Handle array format (subject-based)
+                if (Array.isArray(data)) {
+                    const record = data.find(r => 
+                        r.id === student.id || 
+                        r.studentId === student.id ||
+                        r.studentName === `${student.firstName} ${student.lastName}`
+                    );
+                    
                     if (record) {
+                        console.log(`  ✅ Found today's record for ${student.firstName}:`, record);
                         totalClasses++;
                         if (record.status === 'present') presentCount++;
                         if (record.status === 'absent') absentCount++;
@@ -63,17 +77,97 @@ const MonitorModal = ({
                         if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
                     }
                 }
+                
+                // Handle object format (date-based with nested subjects)
+                else if (typeof data === 'object' && data !== null) {
+                    Object.keys(data).forEach(nestedKey => {
+                        const nestedData = data[nestedKey];
+                        
+                        if (Array.isArray(nestedData)) {
+                            const record = nestedData.find(r => 
+                                r.id === student.id || 
+                                r.studentId === student.id ||
+                                r.studentName === `${student.firstName} ${student.lastName}`
+                            );
+                            
+                            if (record) {
+                                totalClasses++;
+                                if (record.status === 'present') presentCount++;
+                                if (record.status === 'absent') absentCount++;
+                                if (record.status === 'late') lateCount++;
+                                if (record.hasBehaviorIssue || record.hasFlag || record.behaviorFlag) behaviorFlags++;
+                                if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
+                            }
+                        }
+                    });
+                }
             });
+        }
 
-            const attendanceRate = totalClasses > 0 ? Math.round(((presentCount + lateCount) / totalClasses) * 100) : 0;
-            
-            let riskLevel = 'LOW';
-            if (attendanceRate < 70 || absentCount > 5 || behaviorFlags > 2) riskLevel = 'HIGH';
-            else if (attendanceRate < 85 || absentCount > 2 || lateCount > 3 || behaviorFlags > 0) riskLevel = 'MEDIUM';
+        // ✅ FIX 2: Check HISTORICAL attendance data (past records)
+        if (historicalData && typeof historicalData === 'object') {
+            Object.keys(historicalData).forEach(date => {
+                const dateData = historicalData[date];
+                
+                if (typeof dateData === 'object') {
+                    subjects.forEach(subject => {
+                        const subjectData = dateData[subject.name] || dateData[subject.id];
+                        
+                        if (subjectData && subjectData.students && Array.isArray(subjectData.students)) {
+                            const record = subjectData.students.find(s => 
+                                s.studentId === student.id || 
+                                s.id === student.id ||
+                                s.studentName === `${student.firstName} ${student.lastName}`
+                            );
+                            
+                            if (record) {
+                                console.log(`  ✅ Found historical record for ${student.firstName} on ${date}:`, record);
+                                totalClasses++;
+                                if (record.status === 'present') presentCount++;
+                                if (record.status === 'absent') absentCount++;
+                                if (record.status === 'late') lateCount++;
+                                if (record.hasBehaviorIssue || record.hasFlag) behaviorFlags++;
+                                if (record.hasMerit || record.merit) meritPoints++;
+                            }
+                        }
+                    });
+                }
+            });
+        }
 
-            return { ...student, totalClasses, presentCount, absentCount, lateCount, behaviorFlags, meritPoints, attendanceRate, riskLevel };
+        // ✅ FIX 3: Calculate attendance rate and risk level
+        const attendanceRate = totalClasses > 0 
+            ? Math.round(((presentCount + lateCount) / totalClasses) * 100) 
+            : 0;
+
+        const riskLevel = totalClasses === 0 ? 'HIGH' : 
+            attendanceRate < 70 ? 'HIGH' :
+            attendanceRate < 85 ? 'MEDIUM' : 'LOW';
+
+        console.log(`📋 ${student.firstName} ${student.lastName}:`, {
+            totalClasses,
+            presentCount,
+            absentCount,
+            lateCount,
+            attendanceRate,
+            riskLevel,
+            behaviorFlags,
+            meritPoints
         });
-    };
+
+        return {
+            ...student,
+            totalClasses,
+            presentCount,
+            absentCount,
+            lateCount,
+            attendanceRate,
+            riskLevel,
+            behaviorFlags,
+            meritPoints
+        };
+    });
+};
 
     // LOADING STATE
     if (loading) {

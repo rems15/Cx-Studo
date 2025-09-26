@@ -1,4 +1,4 @@
-// src/components/teacher/utils/monitorCalculations.js - UPDATED WITH NEW FUNCTIONS
+// src/components/teacher/utils/monitorCalculations.js - FIXED VERSION
 
 export const calculateTodaysSummary = (subjects, attendanceData) => {
     const today = new Date().toISOString().split('T')[0];
@@ -151,11 +151,23 @@ export const calculateStudentStats = (students, subjects, attendanceData) => {
     });
 };
 
-// ✅ NEW: Calculate overall student summary for StudentsView
+// ✅ FIXED: Calculate overall student summary for StudentsView - MAIN STATS FUNCTION
 export const calculateOverallStudentSummary = (students, subjects, attendanceData) => {
-    const selectedDate = Object.keys(attendanceData)[0]; // Get the selected date
+    console.log('📊 Monitor Stats Calculation - Input:', {
+        studentsCount: students.length,
+        subjectsCount: subjects.length,
+        attendanceDataKeys: Object.keys(attendanceData)
+    });
+
+    const selectedDate = Object.keys(attendanceData)[0];
+    if (!selectedDate) {
+        console.warn('⚠️ No attendance data available');
+        return { total: students.length, present: 0, absent: 0, late: 0, excused: 0, pending: subjects.length };
+    }
+
     const dateData = attendanceData[selectedDate] || {};
-    
+    console.log(`📅 Processing date: ${selectedDate}`, Object.keys(dateData));
+
     const summary = {
         total: students.length,
         present: 0,
@@ -164,25 +176,26 @@ export const calculateOverallStudentSummary = (students, subjects, attendanceDat
         excused: 0,
         pending: 0
     };
-    
-    // Get homeroom data for overall stats
-    const homeroomData = dateData['Homeroom'];
-    if (homeroomData && homeroomData.students) {
-        homeroomData.students.forEach(record => {
-            if (record.status === 'present') summary.present++;
-            else if (record.status === 'absent') summary.absent++;
-            else if (record.status === 'late') summary.late++;
-            else if (record.status === 'excused') summary.excused++;
-        });
-    }
-    
-    // Count pending subjects (subjects without attendance data)
+
+    // Count stats across ALL subjects
     subjects.forEach(subject => {
         const subjectData = dateData[subject.name];
-        if (!subjectData || !subjectData.students || subjectData.students.length === 0) {
+        
+        if (subjectData && subjectData.students && Array.isArray(subjectData.students)) {
+            console.log(`📚 ${subject.name}: ${subjectData.students.length} student records`);
+            
+            subjectData.students.forEach(studentRecord => {
+                if (studentRecord.status === 'present') summary.present++;
+                else if (studentRecord.status === 'absent') summary.absent++;
+                else if (studentRecord.status === 'late') summary.late++;
+                else if (studentRecord.status === 'excused') summary.excused++;
+            });
+        } else {
+            console.log(`⏳ ${subject.name}: No attendance data (pending)`);
             summary.pending++;
         }
     });
-    
+
+    console.log('📈 Final monitor summary:', summary);
     return summary;
 };
