@@ -1,4 +1,4 @@
-// src/components/teacher/MonitorModal.js - COMPLETE FIXED VERSION
+// src/components/teacher/MonitorModal.js - FIXED VERSION
 import React, { useState } from 'react';
 import { useMonitorData } from './hooks/useMonitorData';
 import { getContextConfig } from './utils/monitorHelpers';
@@ -12,23 +12,18 @@ const MonitorModal = ({
     onClose,
     subjectColors = {}
 }) => {
-    // FIXED: Basic state with proper date initialization
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedDate, setSelectedDate] = useState(() => {
-        // FIXED: Proper date calculation to avoid timezone issues
         const today = new Date();
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
         const day = String(today.getDate()).padStart(2, '0');
-        console.log('MonitorModal initializing with date:', `${year}-${month}-${day}`);
         return `${year}-${month}-${day}`;
     });
     const [activeTab, setActiveTab] = useState('students');
-    
-    // CORRECTED: Only create toggle state for homeroom teachers
     const [showAllSubjects, setShowAllSubjects] = useState(false);
 
-    // Load data using existing hook
+    // ✅ FIXED: Pass selectedDate to the hook
     const { 
         students, 
         subjects, 
@@ -36,140 +31,112 @@ const MonitorModal = ({
         historicalData, 
         loading, 
         error 
-    } = useMonitorData(sectionData, monitorContext, focusSubjects);
+    } = useMonitorData(sectionData, monitorContext, focusSubjects, selectedDate);
 
-    // Get configuration for header styling
     const config = getContextConfig(monitorContext, focusSubjects, subjectColors);
 
-    // Calculate performance data
-  const calculatePerformanceData = () => {
-    if (!students || students.length === 0) return [];
-    
-    console.log('📊 Calculating Performance Data...');
-    console.log('  - Students:', students.length);
-    console.log('  - Attendance Data:', attendanceData);
-    console.log('  - Historical Data:', historicalData);
-    
-    return students.map(student => {
-        let totalClasses = 0, presentCount = 0, absentCount = 0, lateCount = 0;
-        let behaviorFlags = 0, meritPoints = 0;
+    const calculatePerformanceData = () => {
+        if (!students || students.length === 0) return [];
+        
+        return students.map(student => {
+            let totalClasses = 0, presentCount = 0, absentCount = 0, lateCount = 0;
+            let behaviorFlags = 0, meritPoints = 0;
 
-        // ✅ FIX 1: Check TODAY'S attendance data
-        if (attendanceData && typeof attendanceData === 'object') {
-            Object.keys(attendanceData).forEach(subjectOrDate => {
-                const data = attendanceData[subjectOrDate];
-                
-                // Handle array format (subject-based)
-                if (Array.isArray(data)) {
-                    const record = data.find(r => 
-                        r.id === student.id || 
-                        r.studentId === student.id ||
-                        r.studentName === `${student.firstName} ${student.lastName}`
-                    );
+            if (attendanceData && typeof attendanceData === 'object') {
+                Object.keys(attendanceData).forEach(subjectOrDate => {
+                    const data = attendanceData[subjectOrDate];
                     
-                    if (record) {
-                        console.log(`  ✅ Found today's record for ${student.firstName}:`, record);
-                        totalClasses++;
-                        if (record.status === 'present') presentCount++;
-                        if (record.status === 'absent') absentCount++;
-                        if (record.status === 'late') lateCount++;
-                        if (record.hasBehaviorIssue || record.hasFlag || record.behaviorFlag) behaviorFlags++;
-                        if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
+                    if (Array.isArray(data)) {
+                        const record = data.find(r => 
+                            r.id === student.id || 
+                            r.studentId === student.id ||
+                            r.studentName === `${student.firstName} ${student.lastName}`
+                        );
+                        
+                        if (record) {
+                            totalClasses++;
+                            if (record.status === 'present') presentCount++;
+                            if (record.status === 'absent') absentCount++;
+                            if (record.status === 'late') lateCount++;
+                            if (record.hasBehaviorIssue || record.hasFlag || record.behaviorFlag) behaviorFlags++;
+                            if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
+                        }
+                    } else if (typeof data === 'object' && data !== null) {
+                        Object.keys(data).forEach(nestedKey => {
+                            const nestedData = data[nestedKey];
+                            
+                            if (Array.isArray(nestedData)) {
+                                const record = nestedData.find(r => 
+                                    r.id === student.id || 
+                                    r.studentId === student.id ||
+                                    r.studentName === `${student.firstName} ${student.lastName}`
+                                );
+                                
+                                if (record) {
+                                    totalClasses++;
+                                    if (record.status === 'present') presentCount++;
+                                    if (record.status === 'absent') absentCount++;
+                                    if (record.status === 'late') lateCount++;
+                                    if (record.hasBehaviorIssue || record.hasFlag || record.behaviorFlag) behaviorFlags++;
+                                    if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
+                                }
+                            }
+                        });
                     }
-                }
-                
-                // Handle object format (date-based with nested subjects)
-                else if (typeof data === 'object' && data !== null) {
-                    Object.keys(data).forEach(nestedKey => {
-                        const nestedData = data[nestedKey];
-                        
-                        if (Array.isArray(nestedData)) {
-                            const record = nestedData.find(r => 
-                                r.id === student.id || 
-                                r.studentId === student.id ||
-                                r.studentName === `${student.firstName} ${student.lastName}`
-                            );
+                });
+            }
+
+            if (historicalData && typeof historicalData === 'object') {
+                Object.keys(historicalData).forEach(date => {
+                    const dateData = historicalData[date];
+                    
+                    if (typeof dateData === 'object') {
+                        subjects.forEach(subject => {
+                            const subjectData = dateData[subject.name] || dateData[subject.id];
                             
-                            if (record) {
-                                totalClasses++;
-                                if (record.status === 'present') presentCount++;
-                                if (record.status === 'absent') absentCount++;
-                                if (record.status === 'late') lateCount++;
-                                if (record.hasBehaviorIssue || record.hasFlag || record.behaviorFlag) behaviorFlags++;
-                                if (record.hasMerit || record.merit || record.meritFlag) meritPoints++;
+                            if (subjectData && subjectData.students && Array.isArray(subjectData.students)) {
+                                const record = subjectData.students.find(s => 
+                                    s.studentId === student.id || 
+                                    s.id === student.id ||
+                                    s.studentName === `${student.firstName} ${student.lastName}`
+                                );
+                                
+                                if (record) {
+                                    totalClasses++;
+                                    if (record.status === 'present') presentCount++;
+                                    if (record.status === 'absent') absentCount++;
+                                    if (record.status === 'late') lateCount++;
+                                    if (record.hasBehaviorIssue || record.hasFlag) behaviorFlags++;
+                                    if (record.hasMerit || record.merit) meritPoints++;
+                                }
                             }
-                        }
-                    });
-                }
-            });
-        }
+                        });
+                    }
+                });
+            }
 
-        // ✅ FIX 2: Check HISTORICAL attendance data (past records)
-        if (historicalData && typeof historicalData === 'object') {
-            Object.keys(historicalData).forEach(date => {
-                const dateData = historicalData[date];
-                
-                if (typeof dateData === 'object') {
-                    subjects.forEach(subject => {
-                        const subjectData = dateData[subject.name] || dateData[subject.id];
-                        
-                        if (subjectData && subjectData.students && Array.isArray(subjectData.students)) {
-                            const record = subjectData.students.find(s => 
-                                s.studentId === student.id || 
-                                s.id === student.id ||
-                                s.studentName === `${student.firstName} ${student.lastName}`
-                            );
-                            
-                            if (record) {
-                                console.log(`  ✅ Found historical record for ${student.firstName} on ${date}:`, record);
-                                totalClasses++;
-                                if (record.status === 'present') presentCount++;
-                                if (record.status === 'absent') absentCount++;
-                                if (record.status === 'late') lateCount++;
-                                if (record.hasBehaviorIssue || record.hasFlag) behaviorFlags++;
-                                if (record.hasMerit || record.merit) meritPoints++;
-                            }
-                        }
-                    });
-                }
-            });
-        }
+            const attendanceRate = totalClasses > 0 
+                ? Math.round(((presentCount + lateCount) / totalClasses) * 100) 
+                : 0;
 
-        // ✅ FIX 3: Calculate attendance rate and risk level
-        const attendanceRate = totalClasses > 0 
-            ? Math.round(((presentCount + lateCount) / totalClasses) * 100) 
-            : 0;
+            const riskLevel = totalClasses === 0 ? 'HIGH' : 
+                attendanceRate < 70 ? 'HIGH' :
+                attendanceRate < 85 ? 'MEDIUM' : 'LOW';
 
-        const riskLevel = totalClasses === 0 ? 'HIGH' : 
-            attendanceRate < 70 ? 'HIGH' :
-            attendanceRate < 85 ? 'MEDIUM' : 'LOW';
-
-        console.log(`📋 ${student.firstName} ${student.lastName}:`, {
-            totalClasses,
-            presentCount,
-            absentCount,
-            lateCount,
-            attendanceRate,
-            riskLevel,
-            behaviorFlags,
-            meritPoints
+            return {
+                ...student,
+                totalClasses,
+                presentCount,
+                absentCount,
+                lateCount,
+                attendanceRate,
+                riskLevel,
+                behaviorFlags,
+                meritPoints
+            };
         });
+    };
 
-        return {
-            ...student,
-            totalClasses,
-            presentCount,
-            absentCount,
-            lateCount,
-            attendanceRate,
-            riskLevel,
-            behaviorFlags,
-            meritPoints
-        };
-    });
-};
-
-    // LOADING STATE
     if (loading) {
         return (
             <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
@@ -186,7 +153,6 @@ const MonitorModal = ({
         );
     }
 
-    // ERROR STATE
     if (error) {
         return (
             <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
@@ -213,7 +179,6 @@ const MonitorModal = ({
         );
     }
 
-    // FIXED: Get current date in long format for header
     const currentDateFormatted = (() => {
         const date = new Date(selectedDate + 'T12:00:00');
         return date.toLocaleDateString('en-US', {
@@ -223,12 +188,10 @@ const MonitorModal = ({
         });
     })();
 
-    // MAIN RENDER - With tabs
     return (
         <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <div className="modal-dialog modal-fullscreen-sm-down modal-xl">
                 <div className="modal-content">
-                    {/* SIMPLIFIED HEADER */}
                     <div className="modal-header py-3 text-white" style={{ background: config.headerColor }}>
                         <div>
                             <h5 className="modal-title mb-1">
@@ -252,9 +215,7 @@ const MonitorModal = ({
                         <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
                     </div>
 
-                    {/* CONTENT AREA - With tabs */}
                     <div className="modal-body p-4" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-                        {/* Tab navigation */}
                         <ul className="nav nav-tabs mb-3">
                             <li className="nav-item">
                                 <button 
@@ -274,7 +235,6 @@ const MonitorModal = ({
                             </li>
                         </ul>
 
-                        {/* Students Tab - FIXED: Added missing props */}
                         {activeTab === 'students' && (
                             <>
                                 {students.length > 0 ? (
@@ -309,7 +269,6 @@ const MonitorModal = ({
                             </>
                         )}
 
-                        {/* Performance Tab */}
                         {activeTab === 'performance' && (
                             <div>
                                 {(() => {
@@ -322,7 +281,6 @@ const MonitorModal = ({
 
                                     return (
                                         <>
-                                            {/* Summary Cards */}
                                             <div className="row mb-4">
                                                 <div className="col-md-2">
                                                     <div className="card bg-success text-white text-center">
@@ -352,7 +310,7 @@ const MonitorModal = ({
                                                     <div className="card bg-dark text-white text-center">
                                                         <div className="card-body p-2">
                                                             <div className="h4 mb-0">{totalBehavior}</div>
-                                                            <small>🚩 Behavior</small>
+                                                            <small>Behavior</small>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -360,7 +318,7 @@ const MonitorModal = ({
                                                     <div className="card bg-primary text-white text-center">
                                                         <div className="card-body p-2">
                                                             <div className="h4 mb-0">{totalMerit}</div>
-                                                            <small>⭐ Merit</small>
+                                                            <small>Merit</small>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -376,7 +334,6 @@ const MonitorModal = ({
                                                 </div>
                                             </div>
 
-                                            {/* Performance Table */}
                                             <div className="table-responsive">
                                                 <table className="table table-hover table-sm">
                                                     <thead className="table-light">
@@ -387,8 +344,8 @@ const MonitorModal = ({
                                                             <th className="text-center">Absent</th>
                                                             <th className="text-center">Late</th>
                                                             <th className="text-center">Attendance</th>
-                                                            <th className="text-center">🚩</th>
-                                                            <th className="text-center">⭐</th>
+                                                            <th className="text-center">Behavior</th>
+                                                            <th className="text-center">Merit</th>
                                                             <th className="text-center">Risk</th>
                                                         </tr>
                                                     </thead>
@@ -441,21 +398,15 @@ const MonitorModal = ({
                         )}
                     </div>
 
-                    {/* SIMPLIFIED FOOTER */}
                     <div className="modal-footer py-2 bg-light border-top">
                         <div className="d-flex justify-content-between align-items-center w-100">
                             <div className="d-flex align-items-center gap-3">
-                                {/* Live indicator */}
                                 <span className="badge bg-success">
                                     <i className="bi bi-broadcast me-1"></i> Live Data
                                 </span>
-                                
-                                {/* Summary info */}
                                 <small className="text-muted">
                                     {students.length} students • {subjects.length} subjects
                                 </small>
-                                
-                                {/* Context info */}
                                 {monitorContext === 'subject' && focusSubjects.length > 0 && (
                                     <small className="text-info">
                                         Focused on: {focusSubjects.join(', ')}
@@ -464,7 +415,6 @@ const MonitorModal = ({
                             </div>
                             
                             <div className="d-flex gap-2">
-                                {/* Refresh button */}
                                 <button 
                                     className="btn btn-outline-primary btn-sm"
                                     onClick={() => window.location.reload()}
@@ -472,8 +422,6 @@ const MonitorModal = ({
                                 >
                                     <i className="bi bi-arrow-clockwise"></i>
                                 </button>
-                                
-                                {/* Close button */}
                                 <button 
                                     className="btn btn-secondary btn-sm"
                                     onClick={onClose}

@@ -10,7 +10,7 @@ import {
   setupTeacherListeners,
   getAdminAnnouncements
 } from '../services/teacherService';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 import MonitorModal from './../components/teacher/MonitorModal';
@@ -39,6 +39,42 @@ function TeacherDashboard({ onLogout, currentUser }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Setup real-time data
+  // useEffect(() => {
+  //   if (!currentUser?.uid && !currentUser?.email) {
+  //     setLoading(false);
+  //     return;
+  //   }
+    
+  //   loadTeacherData();
+    
+  //   const unsubscribers = [];
+  //   try {
+  //     const sectionsListener = setupTeacherListeners(currentUser, async (result) => {
+  //       if (result && result.sections) {
+  //         setSections(result.sections);
+  //         setScheduleContext(result.scheduleContext);
+  //       } else {
+  //         setSections(result || []);
+  //       }
+        
+  //       const announcements = await getAdminAnnouncements();
+  //       checkNotifications(result.sections || result || [], announcements);
+  //     });
+      
+  //     unsubscribers.push(sectionsListener);
+  //   } catch (error) {
+  //     console.error('Error setting up listeners:', error);
+  //   }
+
+  //   return () => {
+  //     unsubscribers.forEach(unsubscribe => {
+  //       if (typeof unsubscribe === 'function') {
+  //         unsubscribe();
+  //       }
+  //     });
+  //   };
+  // }, [currentUser]);
+
   useEffect(() => {
     if (!currentUser?.uid && !currentUser?.email) {
       setLoading(false);
@@ -48,7 +84,9 @@ function TeacherDashboard({ onLogout, currentUser }) {
     loadTeacherData();
     
     const unsubscribers = [];
+    
     try {
+      // Listener 1: Sections
       const sectionsListener = setupTeacherListeners(currentUser, async (result) => {
         if (result && result.sections) {
           setSections(result.sections);
@@ -62,6 +100,21 @@ function TeacherDashboard({ onLogout, currentUser }) {
       });
       
       unsubscribers.push(sectionsListener);
+
+      // ✅ NEW: Listener 2 - ATTENDANCE SYNC (ito yung kulang!)
+      const today = new Date().toISOString().split('T')[0];
+      const attendanceQuery = query(
+        collection(db, 'attendance'),
+        where('date', '==', today)
+      );
+      
+      const attendanceListener = onSnapshot(attendanceQuery, async () => {
+        console.log('🔔 Attendance updated by another teacher - syncing...');
+        await loadTeacherData(); // Reload para makita ang bagong attendance
+      });
+      
+      unsubscribers.push(attendanceListener);
+      
     } catch (error) {
       console.error('Error setting up listeners:', error);
     }
